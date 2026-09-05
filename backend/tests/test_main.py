@@ -1,0 +1,61 @@
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_health_check() -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "healthy"}
+
+
+def test_activity_summary_aggregates_repository_metrics() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {
+                    "name": "api-service",
+                    "commits": 8,
+                    "pull_requests": 2,
+                    "issues": 1,
+                },
+                {
+                    "name": "dashboard-ui",
+                    "commits": 0,
+                    "pull_requests": 0,
+                    "issues": 0,
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repositories_tracked": 2,
+        "active_repositories": 1,
+        "total_commits": 8,
+        "total_pull_requests": 2,
+        "total_issues": 1,
+    }
+
+
+def test_activity_summary_rejects_negative_counts() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {
+                    "name": "api-service",
+                    "commits": -1,
+                    "pull_requests": 0,
+                    "issues": 0,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
