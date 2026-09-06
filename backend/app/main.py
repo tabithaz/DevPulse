@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 
@@ -13,6 +13,10 @@ class RepositoryActivity(BaseModel):
     commits: int = Field(default=0, ge=0)
     pull_requests: int = Field(default=0, ge=0)
     issues: int = Field(default=0, ge=0)
+
+    @property
+    def total_activity(self) -> int:
+        return self.commits + self.pull_requests + self.issues
 
 
 class ActivitySummaryRequest(BaseModel):
@@ -25,6 +29,8 @@ class ActivitySummary(BaseModel):
     total_commits: int
     total_pull_requests: int
     total_issues: int
+    most_active_repository: str | None
+    most_active_repository_events: int
 
 
 @app.get("/")
@@ -40,9 +46,13 @@ def health_check() -> dict[str, str]:
 @app.post("/activity/summary", response_model=ActivitySummary)
 def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     active_repositories = sum(
-        1
-        for repository in payload.repositories
-        if repository.commits or repository.pull_requests or repository.issues
+        1 for repository in payload.repositories if repository.total_activity > 0
+    )
+
+    most_active_repository = max(
+        payload.repositories,
+        key=lambda repository: (repository.total_activity, repository.name),
+        default=None,
     )
 
     return ActivitySummary(
@@ -53,4 +63,10 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
             repository.pull_requests for repository in payload.repositories
         ),
         total_issues=sum(repository.issues for repository in payload.repositories),
+        most_active_repository=(
+            most_active_repository.name if most_active_repository else None
+        ),
+        most_active_repository_events=(
+            most_active_repository.total_activity if most_active_repository else 0
+        ),
     )
