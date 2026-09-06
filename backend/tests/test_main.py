@@ -40,7 +40,43 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "total_commits": 8,
         "total_pull_requests": 2,
         "total_issues": 1,
+        "most_active_repository": "api-service",
+        "most_active_repository_events": 11,
     }
+
+
+def test_activity_summary_uses_deterministic_tie_breaking() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {
+                    "name": "api-service",
+                    "commits": 3,
+                    "pull_requests": 1,
+                    "issues": 0,
+                },
+                {
+                    "name": "dashboard-ui",
+                    "commits": 2,
+                    "pull_requests": 2,
+                    "issues": 0,
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["most_active_repository"] == "dashboard-ui"
+    assert response.json()["most_active_repository_events"] == 4
+
+
+def test_activity_summary_handles_empty_repository_list() -> None:
+    response = client.post("/activity/summary", json={"repositories": []})
+
+    assert response.status_code == 200
+    assert response.json()["most_active_repository"] is None
+    assert response.json()["most_active_repository_events"] == 0
 
 
 def test_activity_summary_rejects_negative_counts() -> None:
