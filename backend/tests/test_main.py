@@ -37,6 +37,7 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
     assert response.json() == {
         "repositories_tracked": 2,
         "active_repositories": 1,
+        "activity_coverage_percent": 50.0,
         "total_commits": 8,
         "total_pull_requests": 2,
         "total_issues": 1,
@@ -71,6 +72,7 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.json()["most_active_repository"] == "dashboard-ui"
     assert response.json()["most_active_repository_events"] == 4
     assert response.json()["total_events"] == 8
+    assert response.json()["activity_coverage_percent"] == 100.0
 
 
 def test_activity_summary_handles_empty_repository_list() -> None:
@@ -80,6 +82,7 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["most_active_repository"] is None
     assert response.json()["most_active_repository_events"] == 0
     assert response.json()["total_events"] == 0
+    assert response.json()["activity_coverage_percent"] == 0.0
 
 
 def test_activity_summary_rejects_negative_counts() -> None:
