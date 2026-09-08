@@ -38,12 +38,14 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "repositories_tracked": 2,
         "active_repositories": 1,
         "activity_coverage_percent": 50.0,
+        "average_events_per_active_repository": 11.0,
         "total_commits": 8,
         "total_pull_requests": 2,
         "total_issues": 1,
         "total_events": 11,
         "most_active_repository": "api-service",
         "most_active_repository_events": 11,
+        "most_active_repository_share_percent": 100.0,
     }
 
 
@@ -71,6 +73,7 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.status_code == 200
     assert response.json()["most_active_repository"] == "dashboard-ui"
     assert response.json()["most_active_repository_events"] == 4
+    assert response.json()["most_active_repository_share_percent"] == 50.0
     assert response.json()["total_events"] == 8
     assert response.json()["activity_coverage_percent"] == 100.0
 
@@ -81,6 +84,7 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.status_code == 200
     assert response.json()["most_active_repository"] is None
     assert response.json()["most_active_repository_events"] == 0
+    assert response.json()["most_active_repository_share_percent"] == 0.0
     assert response.json()["total_events"] == 0
     assert response.json()["activity_coverage_percent"] == 0.0
 

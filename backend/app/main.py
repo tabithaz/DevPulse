@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.6.0",
+    version="0.7.0",
 )
 
 
@@ -34,6 +34,7 @@ class ActivitySummary(BaseModel):
     total_events: int
     most_active_repository: str | None
     most_active_repository_events: int
+    most_active_repository_share_percent: float
 
 
 @app.get("/")
@@ -73,6 +74,14 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         key=lambda repository: (repository.total_activity, repository.name),
         default=None,
     )
+    most_active_repository_events = (
+        most_active_repository.total_activity if most_active_repository else 0
+    )
+    most_active_repository_share_percent = (
+        round((most_active_repository_events / total_events) * 100, 1)
+        if total_events
+        else 0.0
+    )
 
     return ActivitySummary(
         repositories_tracked=repositories_tracked,
@@ -86,7 +95,6 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         most_active_repository=(
             most_active_repository.name if most_active_repository else None
         ),
-        most_active_repository_events=(
-            most_active_repository.total_activity if most_active_repository else 0
-        ),
+        most_active_repository_events=most_active_repository_events,
+        most_active_repository_share_percent=most_active_repository_share_percent,
     )
