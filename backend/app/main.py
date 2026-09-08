@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.5.0",
+    version="0.6.0",
 )
 
 
@@ -27,6 +27,7 @@ class ActivitySummary(BaseModel):
     repositories_tracked: int
     active_repositories: int
     activity_coverage_percent: float
+    average_events_per_active_repository: float
     total_commits: int
     total_pull_requests: int
     total_issues: int
@@ -62,6 +63,10 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         repository.pull_requests for repository in payload.repositories
     )
     total_issues = sum(repository.issues for repository in payload.repositories)
+    total_events = total_commits + total_pull_requests + total_issues
+    average_events_per_active_repository = (
+        round(total_events / active_repositories, 1) if active_repositories else 0.0
+    )
 
     most_active_repository = max(
         payload.repositories,
@@ -73,10 +78,11 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         repositories_tracked=repositories_tracked,
         active_repositories=active_repositories,
         activity_coverage_percent=activity_coverage_percent,
+        average_events_per_active_repository=average_events_per_active_repository,
         total_commits=total_commits,
         total_pull_requests=total_pull_requests,
         total_issues=total_issues,
-        total_events=total_commits + total_pull_requests + total_issues,
+        total_events=total_events,
         most_active_repository=(
             most_active_repository.name if most_active_repository else None
         ),
