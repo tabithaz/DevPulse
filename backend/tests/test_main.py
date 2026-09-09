@@ -52,6 +52,7 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "most_active_repository": "api-service",
         "most_active_repository_events": 11,
         "most_active_repository_share_percent": 100.0,
+        "activity_concentration": "highly_concentrated",
     }
 
 
@@ -80,6 +81,7 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.json()["most_active_repository"] == "dashboard-ui"
     assert response.json()["most_active_repository_events"] == 4
     assert response.json()["most_active_repository_share_percent"] == 50.0
+    assert response.json()["activity_concentration"] == "concentrated"
     assert response.json()["dominant_activity_type"] == "commits"
     assert response.json()["dominant_activity_events"] == 5
     assert response.json()["total_events"] == 8
@@ -90,6 +92,23 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.json()["issue_share_percent"] == 0.0
 
 
+def test_activity_summary_marks_distributed_activity_as_balanced() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {"name": "api", "commits": 4, "pull_requests": 0, "issues": 0},
+                {"name": "web", "commits": 3, "pull_requests": 0, "issues": 0},
+                {"name": "worker", "commits": 3, "pull_requests": 0, "issues": 0},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["most_active_repository_share_percent"] == 40.0
+    assert response.json()["activity_concentration"] == "balanced"
+
+
 def test_activity_summary_handles_empty_repository_list() -> None:
     response = client.post("/activity/summary", json={"repositories": []})
 
@@ -97,6 +116,7 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["most_active_repository"] is None
     assert response.json()["most_active_repository_events"] == 0
     assert response.json()["most_active_repository_share_percent"] == 0.0
+    assert response.json()["activity_concentration"] is None
     assert response.json()["dominant_activity_type"] is None
     assert response.json()["dominant_activity_events"] == 0
     assert response.json()["total_events"] == 0
