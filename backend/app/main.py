@@ -1,10 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel, Field, model_validator
 
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.11.0",
+    version="0.12.0",
 )
 
 
@@ -24,9 +24,7 @@ class ActivitySummaryRequest(BaseModel):
 
     @model_validator(mode="after")
     def reject_duplicate_repository_names(self) -> "ActivitySummaryRequest":
-        repository_names = [
-            repository.name.casefold() for repository in self.repositories
-        ]
+        repository_names = [repository.name.casefold() for repository in self.repositories]
         if len(repository_names) != len(set(repository_names)):
             raise ValueError("repository names must be unique")
         return self
@@ -73,65 +71,52 @@ def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
+@app.post("/activity/rankings")
+def rank_repository_activity(
+    payload: ActivitySummaryRequest,
+    limit: int = Query(default=10, ge=1, le=100),
+) -> list[dict]:
+    total_events = sum(repository.total_activity for repository in payload.repositories)
+    ranked = sorted(
+        payload.repositories,
+        key=lambda repository: (-repository.total_activity, repository.name.casefold()),
+    )
+    return [
+        {
+            "rank": index,
+            "repository": repository.name,
+            "events": repository.total_activity,
+            "share_percent": round((repository.total_activity / total_events) * 100, 1)
+            if total_events
+            else 0.0,
+        }
+        for index, repository in enumerate(ranked[:limit], start=1)
+    ]
+
+
 @app.post("/activity/summary", response_model=ActivitySummary)
 def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     repositories_tracked = len(payload.repositories)
-    active_repositories = sum(
-        1 for repository in payload.repositories if repository.total_activity > 0
-    )
+    active_repositories = sum(1 for repository in payload.repositories if repository.total_activity > 0)
     inactive_repositories = repositories_tracked - active_repositories
-    activity_coverage_percent = (
-        round((active_repositories / repositories_tracked) * 100, 1)
-        if repositories_tracked
-        else 0.0
-    )
+    activity_coverage_percent = round((active_repositories / repositories_tracked) * 100, 1) if repositories_tracked else 0.0
 
     total_commits = sum(repository.commits for repository in payload.repositories)
-    total_pull_requests = sum(
-        repository.pull_requests for repository in payload.repositories
-    )
+    total_pull_requests = sum(repository.pull_requests for repository in payload.repositories)
     total_issues = sum(repository.issues for repository in payload.repositories)
     total_events = total_commits + total_pull_requests + total_issues
-    average_events_per_active_repository = (
-        round(total_events / active_repositories, 1) if active_repositories else 0.0
-    )
+    average_events_per_active_repository = round(total_events / active_repositories, 1) if active_repositories else 0.0
 
     def event_share(count: int) -> float:
         return round((count / total_events) * 100, 1) if total_events else 0.0
 
-    activity_counts = {
-        "commits": total_commits,
-        "pull_requests": total_pull_requests,
-        "issues": total_issues,
-    }
-    dominant_activity_type = (
-        max(
-            activity_counts,
-            key=lambda activity_type: (
-                activity_counts[activity_type],
-                activity_type,
-            ),
-        )
-        if total_events
-        else None
-    )
-    dominant_activity_events = (
-        activity_counts[dominant_activity_type] if dominant_activity_type else 0
-    )
+    activity_counts = {"commits": total_commits, "pull_requests": total_pull_requests, "issues": total_issues}
+    dominant_activity_type = max(activity_counts, key=lambda activity_type: (activity_counts[activity_type], activity_type)) if total_events else None
+    dominant_activity_events = activity_counts[dominant_activity_type] if dominant_activity_type else 0
 
-    most_active_repository = max(
-        payload.repositories,
-        key=lambda repository: (repository.total_activity, repository.name),
-        default=None,
-    )
-    most_active_repository_events = (
-        most_active_repository.total_activity if most_active_repository else 0
-    )
-    most_active_repository_share_percent = (
-        round((most_active_repository_events / total_events) * 100, 1)
-        if total_events
-        else 0.0
-    )
+    most_active_repository = max(payload.repositories, key=lambda repository: (repository.total_activity, repository.name), default=None)
+    most_active_repository_events = most_active_repository.total_activity if most_active_repository else 0
+    most_active_repository_share_percent = round((most_active_repository_events / total_events) * 100, 1) if total_events else 0.0
 
     return ActivitySummary(
         repositories_tracked=repositories_tracked,
@@ -148,12 +133,8 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         issue_share_percent=event_share(total_issues),
         dominant_activity_type=dominant_activity_type,
         dominant_activity_events=dominant_activity_events,
-        most_active_repository=(
-            most_active_repository.name if most_active_repository else None
-        ),
+        most_active_repository=most_active_repository.name if most_active_repository else None,
         most_active_repository_events=most_active_repository_events,
         most_active_repository_share_percent=most_active_repository_share_percent,
-        activity_concentration=activity_concentration(
-            most_active_repository_share_percent, total_events
-        ),
+        activity_concentration=activity_concentration(most_active_repository_share_percent, total_events),
     )
