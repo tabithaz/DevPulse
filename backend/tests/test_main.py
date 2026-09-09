@@ -47,6 +47,8 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "commit_share_percent": 72.7,
         "pull_request_share_percent": 18.2,
         "issue_share_percent": 9.1,
+        "dominant_activity_type": "commits",
+        "dominant_activity_events": 8,
         "most_active_repository": "api-service",
         "most_active_repository_events": 11,
         "most_active_repository_share_percent": 100.0,
@@ -78,6 +80,8 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.json()["most_active_repository"] == "dashboard-ui"
     assert response.json()["most_active_repository_events"] == 4
     assert response.json()["most_active_repository_share_percent"] == 50.0
+    assert response.json()["dominant_activity_type"] == "commits"
+    assert response.json()["dominant_activity_events"] == 5
     assert response.json()["total_events"] == 8
     assert response.json()["activity_coverage_percent"] == 100.0
     assert response.json()["inactive_repositories"] == 0
@@ -93,12 +97,34 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["most_active_repository"] is None
     assert response.json()["most_active_repository_events"] == 0
     assert response.json()["most_active_repository_share_percent"] == 0.0
+    assert response.json()["dominant_activity_type"] is None
+    assert response.json()["dominant_activity_events"] == 0
     assert response.json()["total_events"] == 0
     assert response.json()["activity_coverage_percent"] == 0.0
     assert response.json()["inactive_repositories"] == 0
     assert response.json()["commit_share_percent"] == 0.0
     assert response.json()["pull_request_share_percent"] == 0.0
     assert response.json()["issue_share_percent"] == 0.0
+
+
+def test_activity_summary_breaks_activity_type_ties_deterministically() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {
+                    "name": "api-service",
+                    "commits": 2,
+                    "pull_requests": 2,
+                    "issues": 2,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dominant_activity_type"] == "pull_requests"
+    assert response.json()["dominant_activity_events"] == 2
 
 
 def test_activity_summary_rejects_negative_counts() -> None:

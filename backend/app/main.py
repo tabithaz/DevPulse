@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.9.0",
+    version="0.10.0",
 )
 
 
@@ -36,6 +36,8 @@ class ActivitySummary(BaseModel):
     commit_share_percent: float
     pull_request_share_percent: float
     issue_share_percent: float
+    dominant_activity_type: str | None
+    dominant_activity_events: int
     most_active_repository: str | None
     most_active_repository_events: int
     most_active_repository_share_percent: float
@@ -77,6 +79,20 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     def event_share(count: int) -> float:
         return round((count / total_events) * 100, 1) if total_events else 0.0
 
+    activity_counts = {
+        "commits": total_commits,
+        "pull_requests": total_pull_requests,
+        "issues": total_issues,
+    }
+    dominant_activity_type = (
+        max(activity_counts, key=lambda activity_type: (activity_counts[activity_type], activity_type))
+        if total_events
+        else None
+    )
+    dominant_activity_events = (
+        activity_counts[dominant_activity_type] if dominant_activity_type else 0
+    )
+
     most_active_repository = max(
         payload.repositories,
         key=lambda repository: (repository.total_activity, repository.name),
@@ -104,6 +120,8 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         commit_share_percent=event_share(total_commits),
         pull_request_share_percent=event_share(total_pull_requests),
         issue_share_percent=event_share(total_issues),
+        dominant_activity_type=dominant_activity_type,
+        dominant_activity_events=dominant_activity_events,
         most_active_repository=(
             most_active_repository.name if most_active_repository else None
         ),
