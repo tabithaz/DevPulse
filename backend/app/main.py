@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.10.0",
+    version="0.11.0",
 )
 
 
@@ -41,6 +41,17 @@ class ActivitySummary(BaseModel):
     most_active_repository: str | None
     most_active_repository_events: int
     most_active_repository_share_percent: float
+    activity_concentration: str | None
+
+
+def activity_concentration(share_percent: float, total_events: int) -> str | None:
+    if total_events == 0:
+        return None
+    if share_percent >= 75.0:
+        return "highly_concentrated"
+    if share_percent >= 50.0:
+        return "concentrated"
+    return "balanced"
 
 
 @app.get("/")
@@ -127,4 +138,7 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         ),
         most_active_repository_events=most_active_repository_events,
         most_active_repository_share_percent=most_active_repository_share_percent,
+        activity_concentration=activity_concentration(
+            most_active_repository_share_percent, total_events
+        ),
     )
