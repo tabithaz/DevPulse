@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 app = FastAPI(
     title="DevPulse API",
@@ -21,6 +21,15 @@ class RepositoryActivity(BaseModel):
 
 class ActivitySummaryRequest(BaseModel):
     repositories: list[RepositoryActivity]
+
+    @model_validator(mode="after")
+    def reject_duplicate_repository_names(self) -> "ActivitySummaryRequest":
+        repository_names = [
+            repository.name.casefold() for repository in self.repositories
+        ]
+        if len(repository_names) != len(set(repository_names)):
+            raise ValueError("repository names must be unique")
+        return self
 
 
 class ActivitySummary(BaseModel):
@@ -96,7 +105,13 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         "issues": total_issues,
     }
     dominant_activity_type = (
-        max(activity_counts, key=lambda activity_type: (activity_counts[activity_type], activity_type))
+        max(
+            activity_counts,
+            key=lambda activity_type: (
+                activity_counts[activity_type],
+                activity_type,
+            ),
+        )
         if total_events
         else None
     )

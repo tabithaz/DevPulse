@@ -163,3 +163,18 @@ def test_activity_summary_rejects_negative_counts() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_activity_summary_rejects_duplicate_repository_names() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {"name": "api-service", "commits": 3},
+                {"name": "API-SERVICE", "commits": 4},
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert "repository names must be unique" in response.text
