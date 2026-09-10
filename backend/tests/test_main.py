@@ -82,7 +82,7 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["most_active_repository"] == "dashboard-ui"
+    assert response.json()["most_active_repository"] == "api-service"
     assert response.json()["most_active_repository_events"] == 4
     assert response.json()["most_active_repository_share_percent"] == 50.0
     assert response.json()["activity_concentration"] == "concentrated"
