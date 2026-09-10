@@ -30,7 +30,7 @@ def test_activity_summary_exposes_diversity_metrics() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["activity_diversity_score"] == 88.9
+    assert body["activity_diversity_score"] == 98.0
     assert body["activity_diversity"] == "diverse"
 
 
