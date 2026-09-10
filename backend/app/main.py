@@ -1,10 +1,12 @@
+from statistics import median
+
 from fastapi import FastAPI, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.13.0",
+    version="0.14.0",
 )
 
 
@@ -44,6 +46,8 @@ class ActivitySummary(BaseModel):
     inactive_repositories: int
     activity_coverage_percent: float
     average_events_per_active_repository: float
+    median_events_per_repository: float
+    repository_activity_range: int
     total_commits: int
     total_pull_requests: int
     total_issues: int
@@ -129,7 +133,8 @@ def rank_repository_activity(
 @app.post("/activity/summary", response_model=ActivitySummary)
 def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     repositories_tracked = len(payload.repositories)
-    active_repositories = sum(1 for repository in payload.repositories if repository.total_activity > 0)
+    repository_event_counts = [repository.total_activity for repository in payload.repositories]
+    active_repositories = sum(1 for count in repository_event_counts if count > 0)
     inactive_repositories = repositories_tracked - active_repositories
     activity_coverage_percent = round((active_repositories / repositories_tracked) * 100, 1) if repositories_tracked else 0.0
 
@@ -138,6 +143,8 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     total_issues = sum(repository.issues for repository in payload.repositories)
     total_events = total_commits + total_pull_requests + total_issues
     average_events_per_active_repository = round(total_events / active_repositories, 1) if active_repositories else 0.0
+    median_events_per_repository = round(float(median(repository_event_counts)), 1) if repository_event_counts else 0.0
+    repository_activity_range = max(repository_event_counts) - min(repository_event_counts) if repository_event_counts else 0
 
     def event_share(count: int) -> float:
         return round((count / total_events) * 100, 1) if total_events else 0.0
@@ -157,6 +164,8 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         inactive_repositories=inactive_repositories,
         activity_coverage_percent=activity_coverage_percent,
         average_events_per_active_repository=average_events_per_active_repository,
+        median_events_per_repository=median_events_per_repository,
+        repository_activity_range=repository_activity_range,
         total_commits=total_commits,
         total_pull_requests=total_pull_requests,
         total_issues=total_issues,
