@@ -40,6 +40,8 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "inactive_repositories": 1,
         "activity_coverage_percent": 50.0,
         "average_events_per_active_repository": 11.0,
+        "median_events_per_repository": 5.5,
+        "repository_activity_range": 11,
         "total_commits": 8,
         "total_pull_requests": 2,
         "total_issues": 1,
@@ -89,6 +91,8 @@ def test_activity_summary_uses_deterministic_tie_breaking() -> None:
     assert response.json()["total_events"] == 8
     assert response.json()["activity_coverage_percent"] == 100.0
     assert response.json()["inactive_repositories"] == 0
+    assert response.json()["median_events_per_repository"] == 4.0
+    assert response.json()["repository_activity_range"] == 0
     assert response.json()["commit_share_percent"] == 62.5
     assert response.json()["pull_request_share_percent"] == 37.5
     assert response.json()["issue_share_percent"] == 0.0
@@ -109,6 +113,8 @@ def test_activity_summary_marks_distributed_activity_as_balanced() -> None:
     assert response.status_code == 200
     assert response.json()["most_active_repository_share_percent"] == 40.0
     assert response.json()["activity_concentration"] == "balanced"
+    assert response.json()["median_events_per_repository"] == 3.0
+    assert response.json()["repository_activity_range"] == 1
 
 
 def test_activity_summary_handles_empty_repository_list() -> None:
@@ -126,6 +132,8 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["total_events"] == 0
     assert response.json()["activity_coverage_percent"] == 0.0
     assert response.json()["inactive_repositories"] == 0
+    assert response.json()["median_events_per_repository"] == 0.0
+    assert response.json()["repository_activity_range"] == 0
     assert response.json()["commit_share_percent"] == 0.0
     assert response.json()["pull_request_share_percent"] == 0.0
     assert response.json()["issue_share_percent"] == 0.0
