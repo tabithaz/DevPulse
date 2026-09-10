@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.12.0",
+    version="0.13.0",
 )
 
 
@@ -45,6 +45,8 @@ class ActivitySummary(BaseModel):
     issue_share_percent: float
     dominant_activity_type: str | None
     dominant_activity_events: int
+    activity_diversity_score: float
+    activity_diversity: str | None
     most_active_repository: str | None
     most_active_repository_events: int
     most_active_repository_share_percent: float
@@ -59,6 +61,28 @@ def activity_concentration(share_percent: float, total_events: int) -> str | Non
     if share_percent >= 50.0:
         return "concentrated"
     return "balanced"
+
+
+def activity_diversity(counts: list[int]) -> tuple[float, str | None]:
+    total_events = sum(counts)
+    if total_events == 0:
+        return 0.0, None
+
+    shares = [count / total_events for count in counts]
+    concentration = sum(share * share for share in shares)
+    minimum_concentration = 1.0 / len(counts)
+    score = round(
+        100.0 * (1.0 - concentration) / (1.0 - minimum_concentration),
+        1,
+    )
+
+    if score >= 70.0:
+        label = "diverse"
+    elif score >= 40.0:
+        label = "moderate"
+    else:
+        label = "specialized"
+    return score, label
 
 
 @app.get("/")
@@ -113,6 +137,7 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     activity_counts = {"commits": total_commits, "pull_requests": total_pull_requests, "issues": total_issues}
     dominant_activity_type = max(activity_counts, key=lambda activity_type: (activity_counts[activity_type], activity_type)) if total_events else None
     dominant_activity_events = activity_counts[dominant_activity_type] if dominant_activity_type else 0
+    diversity_score, diversity_label = activity_diversity(list(activity_counts.values()))
 
     most_active_repository = max(payload.repositories, key=lambda repository: (repository.total_activity, repository.name), default=None)
     most_active_repository_events = most_active_repository.total_activity if most_active_repository else 0
@@ -133,6 +158,8 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         issue_share_percent=event_share(total_issues),
         dominant_activity_type=dominant_activity_type,
         dominant_activity_events=dominant_activity_events,
+        activity_diversity_score=diversity_score,
+        activity_diversity=diversity_label,
         most_active_repository=most_active_repository.name if most_active_repository else None,
         most_active_repository_events=most_active_repository_events,
         most_active_repository_share_percent=most_active_repository_share_percent,
