@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
     title="DevPulse API",
@@ -13,6 +13,14 @@ class RepositoryActivity(BaseModel):
     commits: int = Field(default=0, ge=0)
     pull_requests: int = Field(default=0, ge=0)
     issues: int = Field(default=0, ge=0)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, name: str) -> str:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("repository name must not be blank")
+        return normalized_name
 
     @property
     def total_activity(self) -> int:
