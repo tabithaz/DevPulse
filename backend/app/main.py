@@ -154,7 +154,11 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     dominant_activity_events = activity_counts[dominant_activity_type] if dominant_activity_type else 0
     diversity_score, diversity_label = activity_diversity(list(activity_counts.values()))
 
-    most_active_repository = max(payload.repositories, key=lambda repository: (repository.total_activity, repository.name), default=None)
+    most_active_repository = min(
+        payload.repositories,
+        key=lambda repository: (-repository.total_activity, repository.name.casefold()),
+        default=None,
+    )
     most_active_repository_events = most_active_repository.total_activity if most_active_repository else 0
     most_active_repository_share_percent = round((most_active_repository_events / total_events) * 100, 1) if total_events else 0.0
 
