@@ -49,6 +49,8 @@ def test_activity_summary_aggregates_repository_metrics() -> None:
         "issue_share_percent": 9.1,
         "dominant_activity_type": "commits",
         "dominant_activity_events": 8,
+        "activity_diversity_score": 64.5,
+        "activity_diversity": "moderate",
         "most_active_repository": "api-service",
         "most_active_repository_events": 11,
         "most_active_repository_share_percent": 100.0,
@@ -119,6 +121,8 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["activity_concentration"] is None
     assert response.json()["dominant_activity_type"] is None
     assert response.json()["dominant_activity_events"] == 0
+    assert response.json()["activity_diversity_score"] == 0.0
+    assert response.json()["activity_diversity"] is None
     assert response.json()["total_events"] == 0
     assert response.json()["activity_coverage_percent"] == 0.0
     assert response.json()["inactive_repositories"] == 0
