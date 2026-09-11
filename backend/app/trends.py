@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class TrendResult:
     direction: str
-    percent_change: float
+    percent_change: float | None
     delta: int
 
 
@@ -22,7 +22,7 @@ def analyze_activity_trend(previous_events: int, current_events: int) -> TrendRe
         direction = "steady"
 
     if previous_events == 0:
-        percent_change = 0.0 if current_events == 0 else 100.0
+        percent_change = 0.0 if current_events == 0 else None
     else:
         percent_change = round((delta / previous_events) * 100.0, 1)
 
