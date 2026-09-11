@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ActivityForecast:
     forecast_events: int
-    momentum_percent: float
+    momentum_percent: float | None
     confidence: str
 
 
@@ -19,8 +19,10 @@ def forecast_activity(recent_windows: list[int]) -> ActivityForecast:
     weighted_total = sum(events * weight for events, weight in zip(recent_windows, weights))
     forecast_events = round(weighted_total / sum(weights))
 
-    if len(recent_windows) == 1 or recent_windows[-2] == 0:
-        momentum_percent = 0.0 if recent_windows[-1] == 0 else 100.0
+    if len(recent_windows) == 1:
+        momentum_percent = None
+    elif recent_windows[-2] == 0:
+        momentum_percent = 0.0 if recent_windows[-1] == 0 else None
     else:
         momentum_percent = round(
             ((recent_windows[-1] - recent_windows[-2]) / recent_windows[-2]) * 100.0,
