@@ -97,6 +97,21 @@ def activity_diversity(counts: list[int]) -> tuple[float, str | None]:
     return score, label
 
 
+def dominant_activity(counts: dict[str, int]) -> tuple[str | None, int]:
+    if not counts:
+        return None, 0
+
+    highest_count = max(counts.values())
+    if highest_count == 0:
+        return None, 0
+
+    leaders = [activity_type for activity_type, count in counts.items() if count == highest_count]
+    if len(leaders) != 1:
+        return None, highest_count
+
+    return leaders[0], highest_count
+
+
 @app.get("/")
 def root() -> dict[str, str]:
     return {"message": "DevPulse API is running"}
@@ -150,8 +165,7 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         return round((count / total_events) * 100, 1) if total_events else 0.0
 
     activity_counts = {"commits": total_commits, "pull_requests": total_pull_requests, "issues": total_issues}
-    dominant_activity_type = max(activity_counts, key=lambda activity_type: (activity_counts[activity_type], activity_type)) if total_events else None
-    dominant_activity_events = activity_counts[dominant_activity_type] if dominant_activity_type else 0
+    dominant_activity_type, dominant_activity_events = dominant_activity(activity_counts)
     diversity_score, diversity_label = activity_diversity(list(activity_counts.values()))
 
     most_active_repository = min(

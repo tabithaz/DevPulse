@@ -38,3 +38,19 @@ def test_activity_diversity_empty_activity_has_no_label() -> None:
     score, label = activity_diversity([0, 0, 0])
     assert score == 0.0
     assert label is None
+
+
+def test_activity_summary_does_not_choose_dominant_type_on_tie() -> None:
+    response = client.post(
+        "/activity/summary",
+        json={
+            "repositories": [
+                {"name": "api", "commits": 5, "pull_requests": 5, "issues": 1},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dominant_activity_type"] is None
+    assert body["dominant_activity_events"] == 5
