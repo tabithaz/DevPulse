@@ -5,7 +5,7 @@ def analyze_cadence(daily_events: list[int]) -> dict:
     """Measure how consistently development activity is distributed across days."""
     if not daily_events:
         raise ValueError("daily_events must contain at least one day")
-    if any((not isinstance(value, int)) or value < 0 for value in daily_events):
+    if any(type(value) is not int or value < 0 for value in daily_events):
         raise ValueError("daily_events must contain non-negative integers")
 
     average = mean(daily_events)

@@ -26,7 +26,7 @@ def test_inactive_cadence():
     assert result["coefficient_of_variation"] == 0.0
 
 
-@pytest.mark.parametrize("values", [[], [1, -1], [1, 2.5]])
+@pytest.mark.parametrize("values", [[], [1, -1], [1, 2.5], [True, 2]])
 def test_invalid_cadence_input(values):
     with pytest.raises(ValueError):
         analyze_cadence(values)
