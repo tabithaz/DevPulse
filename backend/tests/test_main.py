@@ -139,7 +139,7 @@ def test_activity_summary_handles_empty_repository_list() -> None:
     assert response.json()["issue_share_percent"] == 0.0
 
 
-def test_activity_summary_breaks_activity_type_ties_deterministically() -> None:
+def test_activity_summary_reports_tied_activity_types_without_a_single_dominant_type() -> None:
     response = client.post(
         "/activity/summary",
         json={
@@ -155,7 +155,7 @@ def test_activity_summary_breaks_activity_type_ties_deterministically() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["dominant_activity_type"] == "pull_requests"
+    assert response.json()["dominant_activity_type"] is None
     assert response.json()["dominant_activity_events"] == 2
 
 
