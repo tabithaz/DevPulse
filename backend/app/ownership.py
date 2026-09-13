@@ -33,12 +33,12 @@ def analyze_ownership_resilience(contributions: dict[str, int], critical_share: 
         if cumulative >= critical_share:
             break
 
-    if bus_factor == 1 and top_owner_share >= 0.7:
+    if top_owner_share >= 0.7:
         status = "fragile"
-    elif bus_factor <= 2:
-        status = "moderate"
-    else:
+    elif effective_owners >= 3.0 and top_owner_share <= 0.4:
         status = "resilient"
+    else:
+        status = "moderate"
 
     return OwnershipResilience(
         round(top_owner_share, 4),
