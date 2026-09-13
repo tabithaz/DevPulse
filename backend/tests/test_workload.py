@@ -25,3 +25,8 @@ def test_empty_and_zero_activity_are_handled():
 def test_negative_counts_are_rejected():
     with pytest.raises(ValueError):
         analyze_workload_balance([4, -1])
+
+
+def test_boolean_counts_are_rejected():
+    with pytest.raises(ValueError):
+        analyze_workload_balance([4, True])

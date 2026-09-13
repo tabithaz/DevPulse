@@ -13,8 +13,8 @@ class WorkloadBalance:
 
 
 def analyze_workload_balance(event_counts: list[int]) -> WorkloadBalance:
-    if any(count < 0 for count in event_counts):
-        raise ValueError("event counts must be non-negative")
+    if any(type(count) is not int or count < 0 for count in event_counts):
+        raise ValueError("event counts must be non-negative integers")
     if not event_counts:
         return WorkloadBalance(0, 0.0, 0.0, 100.0, "empty")
 
