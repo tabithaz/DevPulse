@@ -24,3 +24,17 @@ def test_review_state_for_marginal_readiness():
 def test_invalid_pass_rate_is_rejected():
     with pytest.raises(ValueError):
         analyze_delivery_readiness(1.1, 80, 0, 1)
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        ((True, 80, 0, 1), "test_pass_rate must be numeric"),
+        ((1.0, False, 0, 1), "coverage_percent must be numeric"),
+        ((1.0, 80, True, 1), "open_critical_issues must be an integer"),
+        ((1.0, 80, 0, False), "days_since_release must be an integer"),
+    ],
+)
+def test_boolean_delivery_metrics_are_rejected(args, message):
+    with pytest.raises(ValueError, match=message):
+        analyze_delivery_readiness(*args)
