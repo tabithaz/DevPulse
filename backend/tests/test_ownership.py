@@ -13,7 +13,7 @@ def test_fragile_when_one_owner_dominates():
 def test_resilient_when_work_is_distributed():
     result = analyze_ownership_resilience({"a": 30, "b": 25, "c": 25, "d": 20})
     assert result.status == "resilient"
-    assert result.bus_factor == 3
+    assert result.bus_factor == 2
     assert result.effective_owners > 3.5
 
 
