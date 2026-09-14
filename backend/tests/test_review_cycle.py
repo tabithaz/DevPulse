@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from app.review_cycle import analyze_review_cycle
@@ -28,3 +30,15 @@ def test_empty_and_invalid_inputs():
         analyze_review_cycle([1, -1])
     with pytest.raises(ValueError):
         analyze_review_cycle([1, 2], sla_hours=0)
+
+
+@pytest.mark.parametrize("invalid_hours", [math.nan, math.inf, -math.inf])
+def test_rejects_non_finite_review_times(invalid_hours):
+    with pytest.raises(ValueError):
+        analyze_review_cycle([1, invalid_hours, 3])
+
+
+@pytest.mark.parametrize("invalid_sla", [math.nan, math.inf, -math.inf])
+def test_rejects_non_finite_sla(invalid_sla):
+    with pytest.raises(ValueError):
+        analyze_review_cycle([1, 2, 3], sla_hours=invalid_sla)

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 from statistics import median
 
 
@@ -13,10 +14,10 @@ class ReviewCycleSummary:
 
 
 def analyze_review_cycle(review_hours: list[float], sla_hours: float = 24.0) -> ReviewCycleSummary:
-    if sla_hours <= 0:
-        raise ValueError("sla_hours must be positive")
-    if any(hours < 0 for hours in review_hours):
-        raise ValueError("review times cannot be negative")
+    if not isfinite(sla_hours) or sla_hours <= 0:
+        raise ValueError("sla_hours must be finite and positive")
+    if any(not isfinite(hours) or hours < 0 for hours in review_hours):
+        raise ValueError("review times must be finite and non-negative")
     if not review_hours:
         return ReviewCycleSummary(0, 0.0, 0.0, 0, 0.0, "no_data")
 
