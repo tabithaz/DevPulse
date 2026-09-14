@@ -1,5 +1,6 @@
 import pytest
-from backend.app.review_cycle import analyze_review_cycle
+
+from app.review_cycle import analyze_review_cycle
 
 
 def test_healthy_review_cycle():
