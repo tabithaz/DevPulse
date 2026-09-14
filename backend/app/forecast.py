@@ -12,6 +12,8 @@ def forecast_activity(recent_windows: list[int]) -> ActivityForecast:
     """Forecast the next activity window using a recency-weighted average."""
     if not recent_windows:
         raise ValueError("at least one activity window is required")
+    if any(isinstance(events, bool) or not isinstance(events, int) for events in recent_windows):
+        raise ValueError("event counts must be integers")
     if any(events < 0 for events in recent_windows):
         raise ValueError("event counts must be non-negative")
 

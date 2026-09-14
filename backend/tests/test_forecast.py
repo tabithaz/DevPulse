@@ -41,3 +41,9 @@ def test_forecast_reports_zero_momentum_for_zero_to_zero():
 def test_forecast_rejects_invalid_windows(windows):
     with pytest.raises(ValueError):
         forecast_activity(windows)
+
+
+@pytest.mark.parametrize("windows", [[True], [1.5]])
+def test_forecast_rejects_non_integer_counts(windows):
+    with pytest.raises(ValueError, match="event counts must be integers"):
+        forecast_activity(windows)
