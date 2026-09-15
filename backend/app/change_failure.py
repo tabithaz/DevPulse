@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True)
@@ -14,8 +15,21 @@ def analyze_change_failure(
     warning_percent: float = 15.0,
     critical_percent: float = 30.0,
 ) -> ChangeFailureReport:
-    if warning_percent < 0 or critical_percent <= warning_percent:
-        raise ValueError("thresholds must satisfy 0 <= warning < critical")
+    if (
+        isinstance(warning_percent, bool)
+        or isinstance(critical_percent, bool)
+        or not isinstance(warning_percent, (int, float))
+        or not isinstance(critical_percent, (int, float))
+        or not isfinite(warning_percent)
+        or not isfinite(critical_percent)
+        or warning_percent < 0
+        or critical_percent <= warning_percent
+    ):
+        raise ValueError("thresholds must be finite numbers satisfying 0 <= warning < critical")
+    if not isinstance(deployments, list) or any(
+        not isinstance(succeeded, bool) for succeeded in deployments
+    ):
+        raise ValueError("deployments must be a list of booleans")
 
     if not deployments:
         return ChangeFailureReport(0, 0, 0.0, "no_data")
