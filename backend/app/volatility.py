@@ -1,6 +1,18 @@
 from statistics import mean, pstdev
 
 
+def _longest_inactive_streak(daily_events: list[int]) -> int:
+    longest = 0
+    current = 0
+    for value in daily_events:
+        if value == 0:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
 def analyze_activity_volatility(daily_events: list[int]) -> dict:
     if not isinstance(daily_events, list) or not daily_events:
         raise ValueError("daily_events must be a non-empty list")
@@ -25,5 +37,6 @@ def analyze_activity_volatility(daily_events: list[int]) -> dict:
         "standard_deviation": round(deviation, 2),
         "coefficient_of_variation": round(coefficient, 3),
         "peak_to_average_ratio": round(max(daily_events) / avg, 2) if avg else 0.0,
+        "longest_inactive_streak_days": _longest_inactive_streak(daily_events),
         "status": status,
     }
