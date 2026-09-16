@@ -13,6 +13,15 @@ def analyze_cadence(daily_events: list[int]) -> dict:
     active_days = sum(value > 0 for value in daily_events)
     active_ratio = active_days / len(daily_events)
 
+    longest_active_streak = 0
+    current_active_streak = 0
+    for value in daily_events:
+        if value > 0:
+            current_active_streak += 1
+            longest_active_streak = max(longest_active_streak, current_active_streak)
+        else:
+            current_active_streak = 0
+
     if average == 0:
         coefficient_of_variation = 0.0
         stability = "inactive"
@@ -29,6 +38,7 @@ def analyze_cadence(daily_events: list[int]) -> dict:
         "days_observed": len(daily_events),
         "active_days": active_days,
         "active_day_percentage": round(active_ratio * 100, 1),
+        "longest_active_streak": longest_active_streak,
         "average_events_per_day": round(average, 2),
         "event_std_dev": round(deviation, 2),
         "coefficient_of_variation": round(coefficient_of_variation, 3),
