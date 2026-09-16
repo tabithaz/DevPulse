@@ -9,6 +9,7 @@ def test_gap_analysis_tracks_recovery_and_longest_gap():
         "inactivity_rate": 42.9,
         "gap_count": 2,
         "longest_gap_days": 2,
+        "average_gap_days": 1.5,
         "recovery_events": 6,
         "status": "inconsistent",
     }
@@ -19,7 +20,16 @@ def test_long_gap_is_at_risk():
 
 
 def test_empty_history_is_consistent():
-    assert analyze_activity_gaps([])["status"] == "consistent"
+    result = analyze_activity_gaps([])
+    assert result["status"] == "consistent"
+    assert result["average_gap_days"] == 0.0
+
+
+def test_average_gap_days_summarizes_inactivity_bursts():
+    result = analyze_activity_gaps([0, 0, 3, 0, 4, 0, 0, 0])
+    assert result["gap_count"] == 3
+    assert result["inactive_days"] == 6
+    assert result["average_gap_days"] == 2.0
 
 
 def test_invalid_activity_rejected():

@@ -24,6 +24,7 @@ def analyze_activity_gaps(daily_events):
     total_days = len(daily_events)
     inactive_days = sum(1 for value in daily_events if value == 0)
     inactivity_rate = round((inactive_days / total_days) * 100, 1) if total_days else 0.0
+    average_gap_days = round(inactive_days / gap_count, 1) if gap_count else 0.0
 
     if inactivity_rate >= 60 or longest_gap >= 5:
         status = "at_risk"
@@ -38,6 +39,7 @@ def analyze_activity_gaps(daily_events):
         "inactivity_rate": inactivity_rate,
         "gap_count": gap_count,
         "longest_gap_days": longest_gap,
+        "average_gap_days": average_gap_days,
         "recovery_events": recovery_events,
         "status": status,
     }
