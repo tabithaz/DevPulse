@@ -39,6 +39,7 @@ def analyze_activity_gaps(daily_events):
         "inactivity_rate": inactivity_rate,
         "gap_count": gap_count,
         "longest_gap_days": longest_gap,
+        "current_gap_days": current_gap,
         "average_gap_days": average_gap_days,
         "recovery_events": recovery_events,
         "status": status,
