@@ -48,8 +48,9 @@ def test_current_gap_days_tracks_ongoing_inactivity():
 
 
 def test_invalid_activity_rejected():
-    try:
-        analyze_activity_gaps([1, -1])
-        assert False
-    except ValueError:
-        pass
+    for invalid in ([1, -1], [1, True], [False, 2]):
+        try:
+            analyze_activity_gaps(invalid)
+            assert False
+        except ValueError:
+            pass

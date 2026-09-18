@@ -1,5 +1,5 @@
 def analyze_activity_gaps(daily_events):
-    if not isinstance(daily_events, list) or any(not isinstance(v, int) or v < 0 for v in daily_events):
+    if not isinstance(daily_events, list) or any(type(v) is not int or v < 0 for v in daily_events):
         raise ValueError("daily_events must be a list of non-negative integers")
 
     longest_gap = 0
