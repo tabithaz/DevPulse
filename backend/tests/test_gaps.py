@@ -8,6 +8,8 @@ def test_gap_analysis_tracks_recovery_and_longest_gap():
         "inactive_days": 3,
         "inactivity_rate": 42.9,
         "gap_count": 2,
+        "recovered_gap_count": 2,
+        "gap_recovery_rate": 100.0,
         "longest_gap_days": 2,
         "current_gap_days": 0,
         "average_gap_days": 1.5,
@@ -27,6 +29,8 @@ def test_empty_history_is_consistent():
     assert result["average_gap_days"] == 0.0
     assert result["median_gap_days"] == 0.0
     assert result["current_gap_days"] == 0
+    assert result["recovered_gap_count"] == 0
+    assert result["gap_recovery_rate"] == 0.0
 
 
 def test_average_gap_days_summarizes_inactivity_bursts():
@@ -45,6 +49,13 @@ def test_median_gap_days_limits_outlier_influence():
 def test_current_gap_days_tracks_ongoing_inactivity():
     assert analyze_activity_gaps([4, 0, 2, 0, 0])["current_gap_days"] == 2
     assert analyze_activity_gaps([4, 0, 2])["current_gap_days"] == 0
+
+
+def test_gap_recovery_rate_excludes_ongoing_gap():
+    result = analyze_activity_gaps([2, 0, 3, 0, 0])
+    assert result["gap_count"] == 2
+    assert result["recovered_gap_count"] == 1
+    assert result["gap_recovery_rate"] == 50.0
 
 
 def test_invalid_activity_rejected():

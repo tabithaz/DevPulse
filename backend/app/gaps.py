@@ -6,6 +6,7 @@ def analyze_activity_gaps(daily_events):
     current_gap = 0
     gap_count = 0
     completed_gaps = []
+    recovered_gap_count = 0
     in_gap = False
     recovery_events = 0
 
@@ -19,6 +20,7 @@ def analyze_activity_gaps(daily_events):
         else:
             if in_gap:
                 completed_gaps.append(current_gap)
+                recovered_gap_count += 1
                 recovery_events += events
             current_gap = 0
             in_gap = False
@@ -30,6 +32,7 @@ def analyze_activity_gaps(daily_events):
     inactive_days = sum(1 for value in daily_events if value == 0)
     inactivity_rate = round((inactive_days / total_days) * 100, 1) if total_days else 0.0
     average_gap_days = round(inactive_days / gap_count, 1) if gap_count else 0.0
+    gap_recovery_rate = round((recovered_gap_count / gap_count) * 100, 1) if gap_count else 0.0
     sorted_gaps = sorted(completed_gaps)
     midpoint = len(sorted_gaps) // 2
     if not sorted_gaps:
@@ -51,6 +54,8 @@ def analyze_activity_gaps(daily_events):
         "inactive_days": inactive_days,
         "inactivity_rate": inactivity_rate,
         "gap_count": gap_count,
+        "recovered_gap_count": recovered_gap_count,
+        "gap_recovery_rate": gap_recovery_rate,
         "longest_gap_days": longest_gap,
         "current_gap_days": current_gap,
         "average_gap_days": average_gap_days,
