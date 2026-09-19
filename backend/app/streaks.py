@@ -3,6 +3,8 @@ from collections.abc import Sequence
 
 def analyze_contribution_streak(daily_events: Sequence[int]) -> dict:
     """Summarize contribution consistency from oldest to newest daily event counts."""
+    if any(type(count) is not int for count in daily_events):
+        raise ValueError("daily event counts must be integers")
     if any(count < 0 for count in daily_events):
         raise ValueError("daily event counts must be non-negative")
 

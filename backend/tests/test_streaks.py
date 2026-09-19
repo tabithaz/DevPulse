@@ -36,3 +36,9 @@ def test_analyze_contribution_streak_handles_empty_history() -> None:
 def test_analyze_contribution_streak_rejects_negative_counts() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         analyze_contribution_streak([1, -1, 2])
+
+
+@pytest.mark.parametrize("invalid_count", [True, False, 1.5, "2"])
+def test_analyze_contribution_streak_rejects_non_integer_counts(invalid_count: object) -> None:
+    with pytest.raises(ValueError, match="integers"):
+        analyze_contribution_streak([1, invalid_count, 2])
