@@ -45,6 +45,7 @@ class ActivitySummary(BaseModel):
     active_repositories: int
     inactive_repositories: int
     activity_coverage_percent: float
+    average_events_per_repository: float
     average_events_per_active_repository: float
     median_events_per_repository: float
     repository_activity_range: int
@@ -157,6 +158,7 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
     total_pull_requests = sum(repository.pull_requests for repository in payload.repositories)
     total_issues = sum(repository.issues for repository in payload.repositories)
     total_events = total_commits + total_pull_requests + total_issues
+    average_events_per_repository = round(total_events / repositories_tracked, 1) if repositories_tracked else 0.0
     average_events_per_active_repository = round(total_events / active_repositories, 1) if active_repositories else 0.0
     median_events_per_repository = round(float(median(repository_event_counts)), 1) if repository_event_counts else 0.0
     repository_activity_range = max(repository_event_counts) - min(repository_event_counts) if repository_event_counts else 0
@@ -181,6 +183,7 @@ def summarize_activity(payload: ActivitySummaryRequest) -> ActivitySummary:
         active_repositories=active_repositories,
         inactive_repositories=inactive_repositories,
         activity_coverage_percent=activity_coverage_percent,
+        average_events_per_repository=average_events_per_repository,
         average_events_per_active_repository=average_events_per_active_repository,
         median_events_per_repository=median_events_per_repository,
         repository_activity_range=repository_activity_range,
