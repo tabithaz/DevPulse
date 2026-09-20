@@ -21,6 +21,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Python 3.12
 - FastAPI and Pydantic
 - pytest and HTTPX
+- Docker
 - GitHub Actions
 
 ## Run locally
@@ -36,6 +37,19 @@ uvicorn app.main:app --reload
 ```
 
 The API is available at `http://127.0.0.1:8000`. FastAPI's interactive documentation is available at `http://127.0.0.1:8000/docs`.
+
+## Run with Docker
+
+```bash
+docker build -t devpulse-api .
+docker run --rm -p 8000:8000 devpulse-api
+```
+
+Confirm the container is ready with:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
 
 ## Example request
 
@@ -109,7 +123,8 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 │   │   └── *.py                 # focused engineering metric modules
 │   ├── tests/                   # API and analytics regression tests
 │   └── requirements.txt
-└── .github/workflows/test.yml   # Python 3.12 test workflow
+├── Dockerfile                   # non-root API container
+└── .github/workflows/test.yml   # tests and container health check
 ```
 
 ## Next milestones
