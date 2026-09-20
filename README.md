@@ -71,7 +71,7 @@ Example response:
   "issue_share_percent": 16.7,
   "dominant_activity_type": "commits",
   "dominant_activity_events": 30,
-  "activity_diversity_score": 76.8,
+  "activity_diversity_score": 80.7,
   "activity_diversity": "diverse",
   "most_active_repository": "api",
   "most_active_repository_events": 27,
