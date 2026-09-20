@@ -194,3 +194,54 @@ def test_activity_summary_rejects_duplicate_repository_names() -> None:
 
     assert response.status_code == 422
     assert "repository names must be unique" in response.text
+
+
+def test_lead_time_endpoint_returns_delivery_health() -> None:
+    response = client.post(
+        "/delivery/lead-time",
+        json={"lead_times_hours": [8, 12, 24, 60]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "count": 4,
+        "median_hours": 18.0,
+        "p90_hours": 60.0,
+        "slow_changes": 1,
+        "slow_change_rate_percent": 25.0,
+        "status": "watch",
+    }
+
+
+def test_lead_time_endpoint_supports_custom_thresholds() -> None:
+    response = client.post(
+        "/delivery/lead-time",
+        json={
+            "lead_times_hours": [2, 4, 8, 16],
+            "warning_hours": 6,
+            "critical_hours": 12,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "critical"
+    assert response.json()["slow_changes"] == 2
+
+
+def test_lead_time_endpoint_rejects_invalid_inputs() -> None:
+    negative = client.post(
+        "/delivery/lead-time",
+        json={"lead_times_hours": [4, -1]},
+    )
+    invalid_thresholds = client.post(
+        "/delivery/lead-time",
+        json={
+            "lead_times_hours": [4, 8],
+            "warning_hours": 24,
+            "critical_hours": 12,
+        },
+    )
+
+    assert negative.status_code == 422
+    assert invalid_thresholds.status_code == 422
+
