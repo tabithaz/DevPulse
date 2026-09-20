@@ -10,7 +10,10 @@ class TrendResult:
 
 def analyze_activity_trend(previous_events: int, current_events: int) -> TrendResult:
     """Compare two activity windows without producing unstable percentages."""
-    if previous_events < 0 or current_events < 0:
+    counts = (previous_events, current_events)
+    if any(isinstance(count, bool) or not isinstance(count, int) for count in counts):
+        raise ValueError("event counts must be integers")
+    if any(count < 0 for count in counts):
         raise ValueError("event counts must be non-negative")
 
     delta = current_events - previous_events

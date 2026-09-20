@@ -34,3 +34,12 @@ def test_activity_trend_zero_to_zero_is_stable():
 def test_activity_trend_rejects_negative_counts():
     with pytest.raises(ValueError):
         analyze_activity_trend(-1, 4)
+
+
+@pytest.mark.parametrize(
+    ("previous_events", "current_events"),
+    [(True, 4), (4, False), (1.5, 4), (4, "5")],
+)
+def test_activity_trend_rejects_non_integer_counts(previous_events, current_events):
+    with pytest.raises(ValueError):
+        analyze_activity_trend(previous_events, current_events)
