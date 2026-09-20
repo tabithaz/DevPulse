@@ -1,6 +1,10 @@
+from dataclasses import asdict
 from statistics import median
+from typing import Annotated
 
 from fastapi import FastAPI, Query
+
+from app.lead_time import analyze_lead_time
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
@@ -37,6 +41,18 @@ class ActivitySummaryRequest(BaseModel):
         repository_names = [repository.name.casefold() for repository in self.repositories]
         if len(repository_names) != len(set(repository_names)):
             raise ValueError("repository names must be unique")
+        return self
+
+
+class LeadTimeRequest(BaseModel):
+    lead_times_hours: list[Annotated[float, Field(ge=0)]]
+    warning_hours: float = Field(default=48.0, gt=0)
+    critical_hours: float = Field(default=120.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_threshold_order(self) -> "LeadTimeRequest":
+        if self.critical_hours <= self.warning_hours:
+            raise ValueError("critical_hours must be greater than warning_hours")
         return self
 
 
@@ -121,6 +137,16 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.post("/delivery/lead-time")
+def lead_time_report(payload: LeadTimeRequest) -> dict:
+    report = analyze_lead_time(
+        payload.lead_times_hours,
+        warning_hours=payload.warning_hours,
+        critical_hours=payload.critical_hours,
+    )
+    return asdict(report)
 
 
 @app.post("/activity/rankings")
