@@ -88,6 +88,7 @@ Example response:
 | `GET` | `/health` | Health check |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
+| `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
 
 ## Run tests
 
@@ -113,7 +114,7 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 
 ## Next milestones
 
-- Connect metric modules through a unified API surface
+- Continue connecting metric modules through the API surface
 - Add GitHub ingestion with token and rate-limit handling
 - Persist repository snapshots for historical comparisons
 - Build a dashboard for exploring trends over time
