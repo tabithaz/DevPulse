@@ -245,3 +245,81 @@ def test_lead_time_endpoint_rejects_invalid_inputs() -> None:
     assert negative.status_code == 422
     assert invalid_thresholds.status_code == 422
 
+
+
+def test_deployment_health_endpoint_combines_deployment_metrics() -> None:
+    response = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [0, 1, 3, 4],
+            "changes_per_deployment": [3, 5, 8, 10],
+            "outcomes": [True, True, True, True],
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["status"] == "healthy"
+    assert report["frequency"]["deployment_count"] == 4
+    assert report["frequency"]["status"] == "frequent"
+    assert report["batch_size"]["total_changes"] == 26
+    assert report["batch_size"]["status"] == "healthy"
+    assert report["rollbacks"]["rollbacks"] == 0
+    assert report["change_failure"]["failed_deployments"] == 0
+
+
+def test_deployment_health_endpoint_surfaces_critical_risk() -> None:
+    response = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [0, 10, 30],
+            "changes_per_deployment": [5, 60, 4],
+            "outcomes": [True, False, False],
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["status"] == "critical"
+    assert report["frequency"]["status"] == "sporadic"
+    assert report["batch_size"]["status"] == "critical"
+    assert report["rollbacks"]["status"] == "critical"
+    assert report["change_failure"]["status"] == "critical"
+
+
+def test_deployment_health_endpoint_handles_empty_history() -> None:
+    response = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [],
+            "changes_per_deployment": [],
+            "outcomes": [],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "no_data"
+
+
+def test_deployment_health_endpoint_rejects_inconsistent_history() -> None:
+    mismatched = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [0, 2],
+            "changes_per_deployment": [4],
+            "outcomes": [True, False],
+        },
+    )
+    unsorted = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [2, 0],
+            "changes_per_deployment": [4, 6],
+            "outcomes": [True, True],
+        },
+    )
+
+    assert mismatched.status_code == 422
+    assert "same number of entries" in mismatched.text
+    assert unsorted.status_code == 422
+    assert "deployment_days must be sorted" in unsorted.text
