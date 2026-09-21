@@ -4,6 +4,10 @@ from typing import Annotated
 
 from fastapi import FastAPI, Query
 
+from app.change_failure import analyze_change_failure
+from app.deployment_batch import analyze_deployment_batches
+from app.deployment_frequency import analyze_deployment_frequency
+from app.deployment_rollback import analyze_rollbacks
 from app.lead_time import analyze_lead_time
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -53,6 +57,25 @@ class LeadTimeRequest(BaseModel):
     def validate_threshold_order(self) -> "LeadTimeRequest":
         if self.critical_hours <= self.warning_hours:
             raise ValueError("critical_hours must be greater than warning_hours")
+        return self
+
+
+class DeploymentHealthRequest(BaseModel):
+    deployment_days: list[Annotated[float, Field(ge=0)]]
+    changes_per_deployment: list[Annotated[int, Field(ge=0)]]
+    outcomes: list[bool]
+
+    @model_validator(mode="after")
+    def validate_deployment_history(self) -> "DeploymentHealthRequest":
+        entry_counts = {
+            len(self.deployment_days),
+            len(self.changes_per_deployment),
+            len(self.outcomes),
+        }
+        if len(entry_counts) != 1:
+            raise ValueError("deployment inputs must contain the same number of entries")
+        if self.deployment_days != sorted(self.deployment_days):
+            raise ValueError("deployment_days must be sorted")
         return self
 
 
@@ -147,6 +170,37 @@ def lead_time_report(payload: LeadTimeRequest) -> dict:
         critical_hours=payload.critical_hours,
     )
     return asdict(report)
+
+
+@app.post("/deployments/health")
+def deployment_health(payload: DeploymentHealthRequest) -> dict:
+    frequency = analyze_deployment_frequency(payload.deployment_days)
+    batch_size = analyze_deployment_batches(payload.changes_per_deployment)
+    rollbacks = analyze_rollbacks(payload.outcomes)
+    change_failure = analyze_change_failure(payload.outcomes)
+
+    component_statuses = {
+        frequency.status,
+        batch_size.status,
+        rollbacks.status,
+        change_failure.status,
+    }
+    if component_statuses == {"no_data"}:
+        status = "no_data"
+    elif component_statuses & {"critical", "sporadic"}:
+        status = "critical"
+    elif component_statuses & {"watch", "steady", "insufficient_data"}:
+        status = "watch"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "frequency": asdict(frequency),
+        "batch_size": asdict(batch_size),
+        "rollbacks": asdict(rollbacks),
+        "change_failure": asdict(change_failure),
+    }
 
 
 @app.post("/activity/rankings")
