@@ -282,7 +282,7 @@ def test_deployment_health_endpoint_surfaces_critical_risk() -> None:
     report = response.json()
     assert report["status"] == "critical"
     assert report["frequency"]["status"] == "sporadic"
-    assert report["batch_size"]["status"] == "critical"
+    assert report["batch_size"]["status"] == "high_risk"
     assert report["rollbacks"]["status"] == "critical"
     assert report["change_failure"]["status"] == "critical"
 
