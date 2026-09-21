@@ -187,7 +187,7 @@ def deployment_health(payload: DeploymentHealthRequest) -> dict:
     }
     if component_statuses == {"no_data"}:
         status = "no_data"
-    elif component_statuses & {"critical", "sporadic"}:
+    elif component_statuses & {"critical", "high_risk", "sporadic"}:
         status = "critical"
     elif component_statuses & {"watch", "steady", "insufficient_data"}:
         status = "watch"
