@@ -103,6 +103,19 @@ Example response:
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
+| `POST` | `/deployments/health` | Combine deployment frequency, batch, rollback, and failure health |
+
+The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
+
+```bash
+curl -X POST http://127.0.0.1:8000/deployments/health \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deployment_days": [0, 1, 3, 4],
+    "changes_per_deployment": [3, 5, 8, 10],
+    "outcomes": [true, true, true, true]
+  }'
+```
 
 ## Run tests
 
