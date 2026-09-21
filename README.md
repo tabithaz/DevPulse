@@ -45,6 +45,14 @@ docker build -t devpulse-api .
 docker run --rm -p 8000:8000 devpulse-api
 ```
 
+For higher GitHub API limits or private repositories, set a token before starting the service:
+
+```bash
+export GITHUB_TOKEN=github_pat_your_token
+```
+
+The token is only sent to GitHub and is never included in API responses.
+
 Confirm the container is ready with:
 
 ```bash
@@ -100,10 +108,19 @@ Example response:
 | --- | --- | --- |
 | `GET` | `/` | Basic API status |
 | `GET` | `/health` | Health check |
+| `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
 | `POST` | `/deployments/health` | Combine deployment frequency, batch, rollback, and failure health |
+
+Collect a live repository snapshot with:
+
+```bash
+curl http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshot
+```
+
+The endpoint returns normalized repository metadata and maps missing repositories, exhausted GitHub rate limits, and upstream failures to clear HTTP errors.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
@@ -143,6 +160,5 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 ## Next milestones
 
 - Continue connecting metric modules through the API surface
-- Add GitHub ingestion with token and rate-limit handling
 - Persist repository snapshots for historical comparisons
 - Build a dashboard for exploring trends over time
