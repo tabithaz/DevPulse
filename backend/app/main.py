@@ -2,19 +2,26 @@ from dataclasses import asdict
 from statistics import median
 from typing import Annotated
 
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 
 from app.change_failure import analyze_change_failure
 from app.deployment_batch import analyze_deployment_batches
 from app.deployment_frequency import analyze_deployment_frequency
 from app.deployment_rollback import analyze_rollbacks
+from app.github_client import (
+    GitHubClient,
+    GitHubNotFoundError,
+    GitHubRateLimitError,
+    GitHubServiceError,
+    github_client_dependency,
+)
 from app.lead_time import analyze_lead_time
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.14.0",
+    version="0.15.0",
 )
 
 
@@ -160,6 +167,25 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.get("/github/{owner}/{repository}/snapshot")
+def github_repository_snapshot(
+    owner: str,
+    repository: str,
+    client: Annotated[GitHubClient, Depends(github_client_dependency)],
+) -> dict:
+    try:
+        return client.repository_snapshot(owner, repository).to_dict()
+    except GitHubNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubRateLimitError as exc:
+        detail = "GitHub API rate limit exceeded"
+        if exc.reset_at:
+            detail += f"; resets at Unix timestamp {exc.reset_at}"
+        raise HTTPException(status_code=429, detail=detail) from exc
+    except GitHubServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/delivery/lead-time")
