@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DevPulse Dashboard</title>
+  <style>
+    :root { color-scheme: dark; --bg:#08111f; --panel:#101c2e; --line:#26364d; --muted:#91a2b8; --text:#f4f7fb; --accent:#60a5fa; --green:#34d399; --red:#fb7185; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; font:15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; color:var(--text); background:radial-gradient(circle at top right,#142b4c 0,var(--bg) 42%); }
+    main { width:min(1100px,92vw); margin:0 auto; padding:56px 0 72px; }
+    header { display:flex; align-items:end; justify-content:space-between; gap:24px; margin-bottom:28px; }
+    h1 { margin:0; font-size:clamp(2rem,5vw,3.3rem); letter-spacing:-.045em; }
+    h2 { margin:0 0 14px; font-size:1rem; }
+    p { margin:.3rem 0; color:var(--muted); }
+    .badge { color:var(--green); border:1px solid #235946; border-radius:999px; padding:6px 11px; background:#0c2b22; }
+    .panel { background:color-mix(in srgb,var(--panel) 92%,transparent); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 50px #0005; }
+    form { display:grid; grid-template-columns:1fr 1fr auto auto; gap:10px; padding:18px; }
+    input,button { border:1px solid var(--line); border-radius:10px; padding:11px 13px; font:inherit; }
+    input { color:var(--text); background:#0a1424; min-width:0; }
+    button { color:#07101d; background:var(--accent); font-weight:750; cursor:pointer; }
+    button.secondary { color:var(--text); background:#17253a; }
+    button:disabled { opacity:.55; cursor:wait; }
+    #message { min-height:24px; margin:10px 3px 22px; color:var(--muted); }
+    #message.error { color:var(--red); }
+    .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px; }
+    .card { padding:20px; }
+    .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.09em; }
+    .value { margin-top:6px; font-size:1.8rem; font-weight:800; letter-spacing:-.04em; }
+    .trend { display:grid; grid-template-columns:1fr 280px; gap:14px; padding:22px; }
+    svg { width:100%; height:170px; overflow:visible; }
+    polyline { fill:none; stroke:var(--accent); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+    .history { display:flex; flex-direction:column; gap:8px; max-height:190px; overflow:auto; }
+    .row { display:flex; justify-content:space-between; gap:12px; color:var(--muted); border-bottom:1px solid var(--line); padding:7px 0; }
+    .empty { color:var(--muted); padding:36px 0; text-align:center; }
+    @media (max-width:760px) { header{align-items:start;flex-direction:column} form{grid-template-columns:1fr 1fr} .cards{grid-template-columns:1fr 1fr}.trend{grid-template-columns:1fr} }
+    @media (max-width:480px) { form,.cards{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+<main>
+  <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><span class="badge">API connected</span></header>
+  <section class="panel">
+    <form id="repository-form">
+      <input id="owner" aria-label="GitHub owner" placeholder="Owner" value="tabithaz" required pattern="[A-Za-z0-9_.-]+">
+      <input id="repository" aria-label="GitHub repository" placeholder="Repository" value="DevPulse" required pattern="[A-Za-z0-9_.-]+">
+      <button type="submit">Load history</button>
+      <button type="button" class="secondary" id="collect">Collect now</button>
+    </form>
+  </section>
+  <div id="message">Enter a repository to explore saved snapshots.</div>
+  <section id="results" hidden>
+    <div class="cards">
+      <article class="panel card"><div class="label">Stars</div><div class="value" id="stars">0</div></article>
+      <article class="panel card"><div class="label">Forks</div><div class="value" id="forks">0</div></article>
+      <article class="panel card"><div class="label">Open issues</div><div class="value" id="issues">0</div></article>
+      <article class="panel card"><div class="label">Language</div><div class="value" id="language">Unknown</div></article>
+    </div>
+    <article class="panel trend">
+      <div><h2>Star history</h2><svg viewBox="0 0 600 170" role="img" aria-label="Repository star history"><polyline id="sparkline" points=""></polyline></svg></div>
+      <div><h2>Recent snapshots</h2><div class="history" id="history"></div></div>
+    </article>
+  </section>
+  <div class="empty panel" id="empty">No snapshot history loaded yet.</div>
+</main>
+<script>
+  const form = document.querySelector('#repository-form');
+  const collectButton = document.querySelector('#collect');
+  const message = document.querySelector('#message');
+  const results = document.querySelector('#results');
+  const empty = document.querySelector('#empty');
+
+  function route() {
+    const owner = encodeURIComponent(document.querySelector('#owner').value.trim());
+    const repository = encodeURIComponent(document.querySelector('#repository').value.trim());
+    return `/github/${owner}/${repository}/snapshots`;
+  }
+
+  function sparkline(values) {
+    if (!values.length) return '';
+    const low = Math.min(...values), high = Math.max(...values), range = high - low || 1;
+    return values.map((value, index) => {
+      const x = values.length === 1 ? 300 : index * 600 / (values.length - 1);
+      const y = 155 - ((value - low) / range) * 140;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+  }
+
+  function render(history) {
+    if (!history.length) {
+      results.hidden = true; empty.hidden = false; message.textContent = 'No saved snapshots. Select Collect now to create the first one.'; return;
+    }
+    const latest = history[0];
+    document.querySelector('#stars').textContent = latest.stars.toLocaleString();
+    document.querySelector('#forks').textContent = latest.forks.toLocaleString();
+    document.querySelector('#issues').textContent = latest.open_issues.toLocaleString();
+    document.querySelector('#language').textContent = latest.language || 'Unknown';
+    document.querySelector('#sparkline').setAttribute('points', sparkline([...history].reverse().map(item => item.stars)));
+    document.querySelector('#history').replaceChildren(...history.slice(0, 8).map(item => {
+      const row = document.createElement('div'); row.className = 'row';
+      const date = document.createElement('span'); date.textContent = new Date(item.collected_at).toLocaleString();
+      const stars = document.createElement('strong'); stars.textContent = `${item.stars} stars`;
+      row.append(date, stars); return row;
+    }));
+    results.hidden = false; empty.hidden = true; message.textContent = `Showing ${history.length} saved snapshot${history.length === 1 ? '' : 's'} for ${latest.repository}.`;
+  }
+
+  async function request(method) {
+    message.className = ''; message.textContent = method === 'POST' ? 'Collecting current GitHub data…' : 'Loading snapshot history…';
+    form.querySelectorAll('button').forEach(button => button.disabled = true);
+    try {
+      const response = await fetch(route() + (method === 'GET' ? '?limit=30' : ''), { method });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || `Request failed (${response.status})`); }
+      if (method === 'POST') return request('GET');
+      render(await response.json());
+    } catch (error) {
+      results.hidden = true; empty.hidden = false; message.className = 'error'; message.textContent = error.message;
+    } finally { form.querySelectorAll('button').forEach(button => button.disabled = false); }
+  }
+
+  form.addEventListener('submit', event => { event.preventDefault(); request('GET'); });
+  collectButton.addEventListener('click', () => { if (form.reportValidity()) request('POST'); });
+</script>
+</body>
+</html>
