@@ -23,6 +23,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - pytest and HTTPX
 - Docker
 - GitHub Actions
+- SQLite snapshot history
 
 ## Run locally
 
@@ -52,6 +53,8 @@ export GITHUB_TOKEN=github_pat_your_token
 ```
 
 The token is only sent to GitHub and is never included in API responses.
+Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
+to use a different location, including a mounted Docker volume.
 
 Confirm the container is ready with:
 
@@ -109,6 +112,8 @@ Example response:
 | `GET` | `/` | Basic API status |
 | `GET` | `/health` | Health check |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
+| `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
+| `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -121,6 +126,13 @@ curl http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshot
 ```
 
 The endpoint returns normalized repository metadata and maps missing repositories, exhausted GitHub rate limits, and upstream failures to clear HTTP errors.
+
+Persist the current snapshot and retrieve its history with:
+
+```bash
+curl -X POST http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots
+curl "http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots?limit=10"
+```
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
@@ -160,5 +172,4 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 ## Next milestones
 
 - Continue connecting metric modules through the API surface
-- Persist repository snapshots for historical comparisons
 - Build a dashboard for exploring trends over time
