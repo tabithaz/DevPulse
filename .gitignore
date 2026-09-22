@@ -21,3 +21,8 @@ dist/
 # Coverage
 .coverage
 htmlcov/
+
+# Local snapshot storage
+*.db
+*.db-shm
+*.db-wal
