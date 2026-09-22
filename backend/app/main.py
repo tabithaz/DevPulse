@@ -1,8 +1,10 @@
 from dataclasses import asdict
+from pathlib import Path
 from statistics import median
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from app.change_failure import analyze_change_failure
 from app.deployment_batch import analyze_deployment_batches
@@ -24,6 +26,8 @@ app = FastAPI(
     description="API for developer activity and repository analytics.",
     version="0.16.0",
 )
+
+DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 
 
 class RepositoryActivity(BaseModel):
@@ -168,6 +172,11 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(DASHBOARD_PATH, media_type="text/html")
 
 
 @app.get("/github/{owner}/{repository}/snapshot")
