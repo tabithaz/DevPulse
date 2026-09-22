@@ -15,6 +15,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Contributor metrics including ownership concentration, workload, reviewer load, and contribution streaks
 - Trend, volatility, forecasting, inactivity-gap, branch-staleness, and release-stability analysis
 - Automated pytest coverage and GitHub Actions validation
+- Browser dashboard for collecting snapshots and exploring repository trends
 
 ## Stack
 
@@ -37,7 +38,7 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-The API is available at `http://127.0.0.1:8000`. FastAPI's interactive documentation is available at `http://127.0.0.1:8000/docs`.
+The dashboard is available at `http://127.0.0.1:8000/dashboard`. The API is available at `http://127.0.0.1:8000`, and FastAPI's interactive documentation is available at `http://127.0.0.1:8000/docs`.
 
 ## Run with Docker
 
@@ -111,6 +112,7 @@ Example response:
 | --- | --- | --- |
 | `GET` | `/` | Basic API status |
 | `GET` | `/health` | Health check |
+| `GET` | `/dashboard` | Interactive repository snapshot dashboard |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
@@ -162,6 +164,7 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI application and activity endpoints
+│   │   ├── static/dashboard.html # runnable repository dashboard
 │   │   └── *.py                 # focused engineering metric modules
 │   ├── tests/                   # API and analytics regression tests
 │   └── requirements.txt
@@ -169,7 +172,6 @@ The test suite covers API behavior, request validation, empty and zero-activity 
 └── .github/workflows/test.yml   # tests and container health check
 ```
 
-## Next milestones
+## v1.0 scope
 
-- Continue connecting metric modules through the API surface
-- Build a dashboard for exploring trends over time
+DevPulse v1.0 includes a documented analytics API, live GitHub ingestion, durable snapshot history, an interactive dashboard, automated tests, and a containerized runnable demo.
