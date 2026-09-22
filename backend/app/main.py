@@ -16,12 +16,13 @@ from app.github_client import (
     github_client_dependency,
 )
 from app.lead_time import analyze_lead_time
+from app.snapshot_store import SnapshotStore, snapshot_store_dependency
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.15.0",
+    version="0.16.0",
 )
 
 
@@ -186,6 +187,40 @@ def github_repository_snapshot(
         raise HTTPException(status_code=429, detail=detail) from exc
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/github/{owner}/{repository}/snapshots", status_code=201)
+def collect_github_repository_snapshot(
+    owner: str,
+    repository: str,
+    client: Annotated[GitHubClient, Depends(github_client_dependency)],
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+) -> dict:
+    try:
+        snapshot = client.repository_snapshot(owner, repository)
+    except GitHubNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubRateLimitError as exc:
+        detail = "GitHub API rate limit exceeded"
+        if exc.reset_at:
+            detail += f"; resets at Unix timestamp {exc.reset_at}"
+        raise HTTPException(status_code=429, detail=detail) from exc
+    except GitHubServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    store.save(snapshot)
+    return snapshot.to_dict()
+
+
+@app.get("/github/{owner}/{repository}/snapshots")
+def github_repository_snapshot_history(
+    owner: str,
+    repository: str,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=30, ge=1, le=365),
+) -> list[dict]:
+    name = f"{owner}/{repository}"
+    return [snapshot.to_dict() for snapshot in store.history(name, limit)]
 
 
 @app.post("/delivery/lead-time")
