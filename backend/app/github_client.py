@@ -85,7 +85,10 @@ class GitHubClient:
 
         if response.status_code == 404:
             raise GitHubNotFoundError(f"repository {owner}/{repository} was not found")
-        if response.status_code in {403, 429} and response.headers.get("x-ratelimit-remaining") == "0":
+        if response.status_code == 429 or (
+            response.status_code == 403
+            and response.headers.get("x-ratelimit-remaining") == "0"
+        ):
             raise GitHubRateLimitError(response.headers.get("x-ratelimit-reset"))
         if response.is_error:
             raise GitHubServiceError(f"GitHub API returned status {response.status_code}")
