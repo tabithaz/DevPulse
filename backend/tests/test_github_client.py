@@ -91,6 +91,16 @@ def test_github_client_rejects_malformed_payload() -> None:
             github.repository_snapshot("octocat", "hello-world")
 
 
+def test_github_client_classifies_429_without_rate_limit_headers() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(429, request=request)
+    )
+    with GitHubClient(transport=transport) as github:
+        with pytest.raises(GitHubRateLimitError) as error:
+            github.repository_snapshot("octocat", "hello-world")
+    assert error.value.reset_at is None
+
+
 class StubGitHubClient:
     def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
         assert (owner, repository) == ("octocat", "hello-world")
