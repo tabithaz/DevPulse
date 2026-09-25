@@ -79,3 +79,41 @@ def test_snapshot_history_validates_limit(tmp_path: Path) -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+
+
+def test_snapshot_delta_reports_empty_and_single_history(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        empty = client.get("/github/octocat/hello-world/snapshots/delta")
+        store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+        single = client.get("/github/octocat/hello-world/snapshots/delta")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert empty.status_code == 200
+    assert empty.json()["status"] == "no_data"
+    assert empty.json()["changes"] is None
+    assert single.json()["status"] == "insufficient_data"
+    assert single.json()["current"]["stars"] == 10
+
+
+def test_snapshot_delta_uses_latest_two_snapshots(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+    store.save(snapshot("2026-09-21T14:00:00+00:00", stars=12))
+    store.save(snapshot("2026-09-21T16:00:00+00:00", stars=9))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        result = client.get("/github/octocat/hello-world/snapshots/delta")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert result.status_code == 200
+    assert result.json()["status"] == "ready"
+    assert result.json()["current"]["stars"] == 9
+    assert result.json()["previous_collected_at"] == "2026-09-21T14:00:00+00:00"
+    assert result.json()["changes"] == {
+        "stars": -3, "forks": 0, "open_issues": 0,
+        "archived_changed": False, "default_branch_changed": False,
+    }
