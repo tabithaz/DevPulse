@@ -116,6 +116,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
+| `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -135,6 +136,12 @@ Persist the current snapshot and retrieve its history with:
 curl -X POST http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots
 curl "http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots?limit=10"
 ```
+
+After collecting at least two snapshots, call
+`GET /github/tabithaz/DevPulse/snapshots/delta` to see changes in stars,
+forks, open issues, archived state, and default branch. The endpoint reads
+stored history without making another GitHub API request. It returns
+`no_data` or `insufficient_data` until a comparison is possible.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
