@@ -232,6 +232,41 @@ def github_repository_snapshot_history(
     return [snapshot.to_dict() for snapshot in store.history(name, limit)]
 
 
+@app.get("/github/{owner}/{repository}/snapshots/delta")
+def github_repository_snapshot_delta(
+    owner: str,
+    repository: str,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+) -> dict:
+    """Compare the two most recently collected snapshots without calling GitHub."""
+    name = f"{owner}/{repository}"
+    history = store.history(name, limit=2)
+    if not history:
+        return {"repository": name, "status": "no_data", "current": None,
+                "previous_collected_at": None, "changes": None}
+
+    current = history[0]
+    if len(history) == 1:
+        return {"repository": name, "status": "insufficient_data",
+                "current": current.to_dict(), "previous_collected_at": None,
+                "changes": None}
+
+    previous = history[1]
+    return {
+        "repository": name,
+        "status": "ready",
+        "current": current.to_dict(),
+        "previous_collected_at": previous.collected_at,
+        "changes": {
+            "stars": current.stars - previous.stars,
+            "forks": current.forks - previous.forks,
+            "open_issues": current.open_issues - previous.open_issues,
+            "archived_changed": current.archived != previous.archived,
+            "default_branch_changed": current.default_branch != previous.default_branch,
+        },
+    }
+
+
 @app.post("/delivery/lead-time")
 def lead_time_report(payload: LeadTimeRequest) -> dict:
     report = analyze_lead_time(
