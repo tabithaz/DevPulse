@@ -20,3 +20,7 @@ def test_dashboard_integrates_with_snapshot_api() -> None:
     assert "/github/${owner}/${repository}/snapshots" in response.text
     assert "Collect now" in response.text
     assert "Star history" in response.text
+    assert "/github/snapshots/summary" in response.text
+    assert "Portfolio snapshot summary" in response.text
+    assert "`${route()}/delta`" in response.text
+    assert "since last snapshot" in response.text

@@ -27,6 +27,10 @@
     .card { padding:20px; }
     .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.09em; }
     .value { margin-top:6px; font-size:1.8rem; font-weight:800; letter-spacing:-.04em; }
+    .delta { color:var(--muted); font-size:.78rem; margin-top:3px; min-height:1.2em; }
+    .delta.positive { color:var(--green); }
+    .delta.negative { color:var(--red); }
+    .portfolio { margin-bottom:14px; }
     .trend { display:grid; grid-template-columns:1fr 280px; gap:14px; padding:22px; }
     svg { width:100%; height:170px; overflow:visible; }
     polyline { fill:none; stroke:var(--accent); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
@@ -40,6 +44,12 @@
 <body>
 <main>
   <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><span class="badge">API connected</span></header>
+  <section class="cards portfolio" aria-label="Portfolio snapshot summary">
+    <article class="panel card"><div class="label">Repositories</div><div class="value" id="portfolio-repositories">0</div></article>
+    <article class="panel card"><div class="label">Active</div><div class="value" id="portfolio-active">0</div></article>
+    <article class="panel card"><div class="label">Total stars</div><div class="value" id="portfolio-stars">0</div></article>
+    <article class="panel card"><div class="label">Languages</div><div class="value" id="portfolio-languages">0</div></article>
+  </section>
   <section class="panel">
     <form id="repository-form">
       <input id="owner" aria-label="GitHub owner" placeholder="Owner" value="tabithaz" required pattern="[A-Za-z0-9_.-]+">
@@ -51,9 +61,9 @@
   <div id="message">Enter a repository to explore saved snapshots.</div>
   <section id="results" hidden>
     <div class="cards">
-      <article class="panel card"><div class="label">Stars</div><div class="value" id="stars">0</div></article>
-      <article class="panel card"><div class="label">Forks</div><div class="value" id="forks">0</div></article>
-      <article class="panel card"><div class="label">Open issues</div><div class="value" id="issues">0</div></article>
+      <article class="panel card"><div class="label">Stars</div><div class="value" id="stars">0</div><div class="delta" id="stars-delta"></div></article>
+      <article class="panel card"><div class="label">Forks</div><div class="value" id="forks">0</div><div class="delta" id="forks-delta"></div></article>
+      <article class="panel card"><div class="label">Open issues</div><div class="value" id="issues">0</div><div class="delta" id="issues-delta"></div></article>
       <article class="panel card"><div class="label">Language</div><div class="value" id="language">Unknown</div></article>
     </div>
     <article class="panel trend">
@@ -76,6 +86,24 @@
     return `/github/${owner}/${repository}/snapshots`;
   }
 
+  function renderDelta(id, value) {
+    const element = document.querySelector(`#${id}-delta`);
+    element.className = `delta ${value > 0 ? 'positive' : value < 0 ? 'negative' : ''}`;
+    element.textContent = value === null ? 'Collect again to compare' : `${value > 0 ? '+' : ''}${value} since last snapshot`;
+  }
+
+  async function loadPortfolio() {
+    try {
+      const response = await fetch('/github/snapshots/summary');
+      if (!response.ok) return;
+      const summary = await response.json();
+      document.querySelector('#portfolio-repositories').textContent = summary.repositories_tracked.toLocaleString();
+      document.querySelector('#portfolio-active').textContent = summary.active_repositories.toLocaleString();
+      document.querySelector('#portfolio-stars').textContent = summary.total_stars.toLocaleString();
+      document.querySelector('#portfolio-languages').textContent = Object.keys(summary.languages).length.toLocaleString();
+    } catch (_) { /* Repository workflow remains available if the summary is unavailable. */ }
+  }
+
   function sparkline(values) {
     if (!values.length) return '';
     const low = Math.min(...values), high = Math.max(...values), range = high - low || 1;
@@ -86,7 +114,7 @@
     }).join(' ');
   }
 
-  function render(history) {
+  function render(history, delta) {
     if (!history.length) {
       results.hidden = true; empty.hidden = false; message.textContent = 'No saved snapshots. Select Collect now to create the first one.'; return;
     }
@@ -95,6 +123,9 @@
     document.querySelector('#forks').textContent = latest.forks.toLocaleString();
     document.querySelector('#issues').textContent = latest.open_issues.toLocaleString();
     document.querySelector('#language').textContent = latest.language || 'Unknown';
+    renderDelta('stars', delta?.changes?.stars ?? null);
+    renderDelta('forks', delta?.changes?.forks ?? null);
+    renderDelta('issues', delta?.changes?.open_issues ?? null);
     document.querySelector('#sparkline').setAttribute('points', sparkline([...history].reverse().map(item => item.stars)));
     document.querySelector('#history').replaceChildren(...history.slice(0, 8).map(item => {
       const row = document.createElement('div'); row.className = 'row';
@@ -111,8 +142,11 @@
     try {
       const response = await fetch(route() + (method === 'GET' ? '?limit=30' : ''), { method });
       if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || `Request failed (${response.status})`); }
-      if (method === 'POST') return request('GET');
-      render(await response.json());
+      if (method === 'POST') { await loadPortfolio(); return request('GET'); }
+      const history = await response.json();
+      const deltaResponse = await fetch(`${route()}/delta`);
+      const delta = deltaResponse.ok ? await deltaResponse.json() : null;
+      render(history, delta);
     } catch (error) {
       results.hidden = true; empty.hidden = false; message.className = 'error'; message.textContent = error.message;
     } finally { form.querySelectorAll('button').forEach(button => button.disabled = false); }
@@ -120,6 +154,7 @@
 
   form.addEventListener('submit', event => { event.preventDefault(); request('GET'); });
   collectButton.addEventListener('click', () => { if (form.reportValidity()) request('POST'); });
+  loadPortfolio();
 </script>
 </body>
 </html>
