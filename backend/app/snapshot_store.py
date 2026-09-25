@@ -89,6 +89,40 @@ class SnapshotStore:
             for row in rows
         ]
 
+    def latest(self) -> list[RepositorySnapshot]:
+        """Return the newest snapshot for every tracked repository."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT snapshots.*
+                FROM repository_snapshots AS snapshots
+                JOIN (
+                    SELECT repository, MAX(collected_at) AS collected_at
+                    FROM repository_snapshots
+                    GROUP BY repository
+                ) AS latest
+                  ON snapshots.repository = latest.repository
+                 AND snapshots.collected_at = latest.collected_at
+                ORDER BY snapshots.repository COLLATE NOCASE
+                """
+            ).fetchall()
+        return [
+            RepositorySnapshot(
+                repository=row["repository"],
+                description=row["description"],
+                default_branch=row["default_branch"],
+                language=row["language"],
+                stars=row["stars"],
+                forks=row["forks"],
+                open_issues=row["open_issues"],
+                archived=bool(row["archived"]),
+                created_at=row["created_at"],
+                pushed_at=row["pushed_at"],
+                collected_at=row["collected_at"],
+            )
+            for row in rows
+        ]
+
 
 def snapshot_store_dependency() -> SnapshotStore:
     return SnapshotStore.from_environment()

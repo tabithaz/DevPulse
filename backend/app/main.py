@@ -267,6 +267,29 @@ def github_repository_snapshot_delta(
     }
 
 
+@app.get("/github/snapshots/summary")
+def github_snapshot_portfolio_summary(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+) -> dict:
+    """Summarize the newest stored snapshot for every tracked repository."""
+    snapshots = store.latest()
+    languages: dict[str, int] = {}
+    for snapshot in snapshots:
+        language = snapshot.language or "Unknown"
+        languages[language] = languages.get(language, 0) + 1
+
+    return {
+        "repositories_tracked": len(snapshots),
+        "active_repositories": sum(not snapshot.archived for snapshot in snapshots),
+        "archived_repositories": sum(snapshot.archived for snapshot in snapshots),
+        "total_stars": sum(snapshot.stars for snapshot in snapshots),
+        "total_forks": sum(snapshot.forks for snapshot in snapshots),
+        "total_open_issues": sum(snapshot.open_issues for snapshot in snapshots),
+        "languages": dict(sorted(languages.items(), key=lambda item: item[0].casefold())),
+        "repositories": [snapshot.to_dict() for snapshot in snapshots],
+    }
+
+
 @app.post("/delivery/lead-time")
 def lead_time_report(payload: LeadTimeRequest) -> dict:
     report = analyze_lead_time(

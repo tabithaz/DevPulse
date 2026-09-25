@@ -117,6 +117,7 @@ Example response:
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
+| `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -142,6 +143,11 @@ After collecting at least two snapshots, call
 forks, open issues, archived state, and default branch. The endpoint reads
 stored history without making another GitHub API request. It returns
 `no_data` or `insufficient_data` until a comparison is possible.
+
+Use `GET /github/snapshots/summary` for a portfolio-wide view. It selects
+only the newest stored snapshot per repository and reports active and archived
+counts, aggregate stars, forks, open issues, language coverage, and the current
+repository records without making live GitHub requests.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
