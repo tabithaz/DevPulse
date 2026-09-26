@@ -61,6 +61,11 @@ class SnapshotStore:
                 ),
             )
 
+    def check_connection(self) -> None:
+        """Raise when the configured SQLite database cannot serve queries."""
+        with self._connect() as connection:
+            connection.execute("SELECT 1").fetchone()
+
     def history(self, repository: str, limit: int = 30) -> list[RepositorySnapshot]:
         with self._connect() as connection:
             rows = connection.execute(

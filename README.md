@@ -60,10 +60,10 @@ The token is only sent to GitHub and is never included in API responses.
 Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
 to use a different location, including a mounted Docker volume.
 
-Confirm the container is ready with:
+Confirm the application and its snapshot database are ready with:
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/ready
 ```
 
 ## Example request
@@ -115,6 +115,7 @@ Example response:
 | --- | --- | --- |
 | `GET` | `/` | Basic API status |
 | `GET` | `/health` | Health check |
+| `GET` | `/ready` | Readiness check with SQLite connectivity verification |
 | `GET` | `/dashboard` | Interactive repository snapshot dashboard |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |

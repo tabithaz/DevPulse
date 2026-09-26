@@ -1,6 +1,7 @@
 from dataclasses import asdict
 import csv
 from io import StringIO
+import sqlite3
 from pathlib import Path
 from statistics import median
 from typing import Annotated
@@ -174,6 +175,17 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.get("/ready")
+def readiness_check() -> dict[str, str]:
+    """Confirm the service can initialize and query its snapshot database."""
+    try:
+        store = SnapshotStore.from_environment()
+        store.check_connection()
+    except (OSError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="snapshot database unavailable") from exc
+    return {"status": "ready", "database": "available"}
 
 
 @app.get("/dashboard", include_in_schema=False)

@@ -12,6 +12,24 @@ def test_health_check() -> None:
     assert response.json() == {"status": "healthy"}
 
 
+def test_readiness_check_verifies_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEVPULSE_DB_PATH", str(tmp_path / "ready.db"))
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "database": "available"}
+
+
+def test_readiness_check_reports_unavailable_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEVPULSE_DB_PATH", str(tmp_path))
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "snapshot database unavailable"}
+
+
 def test_activity_summary_aggregates_repository_metrics() -> None:
     response = client.post(
         "/activity/summary",
