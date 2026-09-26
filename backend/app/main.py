@@ -1,13 +1,15 @@
 from dataclasses import asdict
 import csv
+import hashlib
 from io import StringIO
+import json
 import sqlite3
 from pathlib import Path
 from statistics import median
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.change_failure import analyze_change_failure
 from app.deployment_batch import analyze_deployment_batches
@@ -27,10 +29,32 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.16.0",
+    version="0.17.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
+
+
+def conditional_json_response(request: Request, payload: dict) -> Response:
+    """Return a stable ETag and honor conditional requests for stored analytics."""
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    etag = f'"{hashlib.sha256(encoded).hexdigest()}"'
+    cache_headers = {
+        "ETag": etag,
+        "Cache-Control": "private, max-age=0, must-revalidate",
+    }
+    candidates = {
+        candidate.strip().removeprefix("W/")
+        for candidate in request.headers.get("if-none-match", "").split(",")
+    }
+    if "*" in candidates or etag in candidates:
+        return Response(status_code=304, headers=cache_headers)
+    return JSONResponse(content=payload, headers=cache_headers)
 
 
 class RepositoryActivity(BaseModel):
@@ -313,8 +337,9 @@ def github_repository_snapshot_delta(
 
 @app.get("/github/snapshots/summary")
 def github_snapshot_portfolio_summary(
+    request: Request,
     store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
-) -> dict:
+) -> Response:
     """Summarize the newest stored snapshot for every tracked repository."""
     snapshots = store.latest()
     languages: dict[str, int] = {}
@@ -322,7 +347,7 @@ def github_snapshot_portfolio_summary(
         language = snapshot.language or "Unknown"
         languages[language] = languages.get(language, 0) + 1
 
-    return {
+    summary = {
         "repositories_tracked": len(snapshots),
         "active_repositories": sum(not snapshot.archived for snapshot in snapshots),
         "archived_repositories": sum(snapshot.archived for snapshot in snapshots),
@@ -332,6 +357,7 @@ def github_snapshot_portfolio_summary(
         "languages": dict(sorted(languages.items(), key=lambda item: item[0].casefold())),
         "repositories": [snapshot.to_dict() for snapshot in snapshots],
     }
+    return conditional_json_response(request, summary)
 
 
 @app.post("/delivery/lead-time")

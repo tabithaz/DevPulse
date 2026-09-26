@@ -221,3 +221,36 @@ def test_snapshot_portfolio_summary_handles_empty_store(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["repositories_tracked"] == 0
     assert response.json()["repositories"] == []
+
+
+def test_snapshot_portfolio_summary_supports_etag_revalidation(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        first = client.get("/github/snapshots/summary")
+        unchanged = client.get(
+            "/github/snapshots/summary",
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+        weak_match = client.get(
+            "/github/snapshots/summary",
+            headers={"If-None-Match": f'W/{first.headers["etag"]}'},
+        )
+        store.save(snapshot("2026-09-21T14:00:00+00:00", stars=12))
+        changed = client.get(
+            "/github/snapshots/summary",
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "private, max-age=0, must-revalidate"
+    assert unchanged.status_code == 304
+    assert unchanged.content == b""
+    assert unchanged.headers["etag"] == first.headers["etag"]
+    assert weak_match.status_code == 304
+    assert changed.status_code == 200
+    assert changed.json()["total_stars"] == 12
+    assert changed.headers["etag"] != first.headers["etag"]

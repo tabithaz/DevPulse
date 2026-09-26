@@ -16,6 +16,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Trend, volatility, forecasting, inactivity-gap, branch-staleness, and release-stability analysis
 - Automated pytest coverage and GitHub Actions validation
 - Browser dashboard for portfolio totals, snapshot deltas, collection, and repository trends
+- ETag revalidation for efficient portfolio-dashboard polling
 
 ## Stack
 
@@ -157,7 +158,9 @@ The CSV can be opened in a spreadsheet or used for external charts.
 Use `GET /github/snapshots/summary` for a portfolio-wide view. It selects
 only the newest stored snapshot per repository and reports active and archived
 counts, aggregate stars, forks, open issues, language coverage, and the current
-repository records without making live GitHub requests.
+repository records without making live GitHub requests. The response includes a
+stable `ETag` and honors `If-None-Match` with HTTP 304 when the portfolio has not
+changed, reducing response work for dashboards and polling clients.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
