@@ -1,9 +1,11 @@
 from dataclasses import asdict
+import csv
+from io import StringIO
 from pathlib import Path
 from statistics import median
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 
 from app.change_failure import analyze_change_failure
@@ -230,6 +232,36 @@ def github_repository_snapshot_history(
 ) -> list[dict]:
     name = f"{owner}/{repository}"
     return [snapshot.to_dict() for snapshot in store.history(name, limit)]
+
+
+@app.get("/github/{owner}/{repository}/snapshots/export")
+def export_github_repository_snapshots(
+    owner: str,
+    repository: str,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=365, ge=1, le=365),
+) -> Response:
+    """Download stored snapshot history without making a GitHub API request."""
+    def safe_text(value: str | None) -> str:
+        if value is None:
+            return ""
+        return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
+
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(("collected_at", "repository", "stars", "forks", "open_issues",
+                     "language", "archived", "default_branch"))
+    for snapshot in store.history(f"{owner}/{repository}", limit=limit):
+        writer.writerow((snapshot.collected_at, safe_text(snapshot.repository),
+                         snapshot.stars, snapshot.forks, snapshot.open_issues,
+                         safe_text(snapshot.language), snapshot.archived,
+                         safe_text(snapshot.default_branch)))
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="devpulse-snapshots.csv"'},
+    )
 
 
 @app.get("/github/{owner}/{repository}/snapshots/delta")

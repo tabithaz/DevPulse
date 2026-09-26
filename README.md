@@ -119,6 +119,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
+| `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
 | `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
 | `POST` | `/activity/summary` | Aggregate repository activity |
@@ -146,6 +147,11 @@ After collecting at least two snapshots, call
 forks, open issues, archived state, and default branch. The endpoint reads
 stored history without making another GitHub API request. It returns
 `no_data` or `insufficient_data` until a comparison is possible.
+
+Download up to 365 stored snapshots for a repository with
+`GET /github/tabithaz/DevPulse/snapshots/export`. Rows are ordered from newest
+to oldest and include counts, language, archived state, and default branch.
+The CSV can be opened in a spreadsheet or used for external charts.
 
 Use `GET /github/snapshots/summary` for a portfolio-wide view. It selects
 only the newest stored snapshot per repository and reports active and archived

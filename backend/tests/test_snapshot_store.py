@@ -1,4 +1,6 @@
 from pathlib import Path
+import csv
+from io import StringIO
 
 from fastapi.testclient import TestClient
 
@@ -104,6 +106,31 @@ def test_snapshot_history_validates_limit(tmp_path: Path) -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+
+
+def test_snapshot_export_is_bounded_ordered_and_spreadsheet_safe(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+    store.save(snapshot("2026-09-21T14:00:00+00:00", stars=12,
+                        language='=HYPERLINK("https://example.com")'))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/octocat/hello-world/snapshots/export")
+        limited = client.get("/github/octocat/hello-world/snapshots/export?limit=1")
+        invalid = client.get("/github/octocat/hello-world/snapshots/export?limit=0")
+        empty = client.get("/github/octocat/missing/snapshots/export")
+    finally:
+        app.dependency_overrides.clear()
+
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="devpulse-snapshots.csv"'
+    assert [row["stars"] for row in rows] == ["12", "10"]
+    assert rows[0]["language"].startswith("'=HYPERLINK")
+    assert len(list(csv.DictReader(StringIO(limited.text)))) == 1
+    assert invalid.status_code == 422
+    assert len(list(csv.DictReader(StringIO(empty.text)))) == 0
 
 
 def test_snapshot_delta_reports_empty_and_single_history(tmp_path: Path) -> None:
