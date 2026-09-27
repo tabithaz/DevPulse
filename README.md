@@ -17,6 +17,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Automated pytest coverage and GitHub Actions validation
 - Browser dashboard for portfolio totals, snapshot deltas, collection, and repository trends
 - ETag revalidation for efficient portfolio-dashboard polling
+- Configurable per-repository snapshot retention with transactional pruning
 
 ## Stack
 
@@ -59,7 +60,9 @@ export GITHUB_TOKEN=github_pat_your_token
 
 The token is only sent to GitHub and is never included in API responses.
 Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
-to use a different location, including a mounted Docker volume.
+to use a different location, including a mounted Docker volume. DevPulse keeps
+the newest 365 snapshots per repository by default so storage remains bounded.
+Set `DEVPULSE_SNAPSHOT_RETENTION` to a different positive limit when needed.
 
 Confirm the application and its snapshot database are ready with:
 

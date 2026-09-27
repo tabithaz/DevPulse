@@ -30,6 +30,16 @@ def test_readiness_check_reports_unavailable_database(tmp_path, monkeypatch) -> 
     assert response.json() == {"detail": "snapshot database unavailable"}
 
 
+def test_readiness_check_reports_invalid_retention_configuration(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEVPULSE_DB_PATH", str(tmp_path / "ready.db"))
+    monkeypatch.setenv("DEVPULSE_SNAPSHOT_RETENTION", "invalid")
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "snapshot database unavailable"}
+
+
 def test_activity_summary_aggregates_repository_metrics() -> None:
     response = client.post(
         "/activity/summary",

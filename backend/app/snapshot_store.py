@@ -6,13 +6,32 @@ from app.github_client import RepositorySnapshot
 
 
 class SnapshotStore:
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        retention_per_repository: int = 365,
+    ) -> None:
+        if retention_per_repository <= 0:
+            raise ValueError("retention_per_repository must be greater than zero")
         self.database_path = str(database_path)
+        self.retention_per_repository = retention_per_repository
         self._initialize()
 
     @classmethod
     def from_environment(cls) -> "SnapshotStore":
-        return cls(os.getenv("DEVPULSE_DB_PATH", "devpulse.db"))
+        retention_value = os.getenv("DEVPULSE_SNAPSHOT_RETENTION", "365")
+        try:
+            retention = int(retention_value)
+        except ValueError as error:
+            raise ValueError(
+                "DEVPULSE_SNAPSHOT_RETENTION must be a positive integer"
+            ) from error
+        if retention <= 0:
+            raise ValueError("DEVPULSE_SNAPSHOT_RETENTION must be a positive integer")
+        return cls(
+            os.getenv("DEVPULSE_DB_PATH", "devpulse.db"),
+            retention_per_repository=retention,
+        )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -58,6 +77,24 @@ class SnapshotStore:
                     snapshot.created_at,
                     snapshot.pushed_at,
                     snapshot.collected_at,
+                ),
+            )
+            connection.execute(
+                """
+                DELETE FROM repository_snapshots
+                WHERE repository = ?
+                  AND rowid NOT IN (
+                      SELECT rowid
+                      FROM repository_snapshots
+                      WHERE repository = ?
+                      ORDER BY collected_at DESC
+                      LIMIT ?
+                  )
+                """,
+                (
+                    snapshot.repository,
+                    snapshot.repository,
+                    self.retention_per_repository,
                 ),
             )
 

@@ -207,7 +207,7 @@ def readiness_check() -> dict[str, str]:
     try:
         store = SnapshotStore.from_environment()
         store.check_connection()
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, sqlite3.Error, ValueError) as exc:
         raise HTTPException(status_code=503, detail="snapshot database unavailable") from exc
     return {"status": "ready", "database": "available"}
 

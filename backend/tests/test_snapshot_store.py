@@ -3,6 +3,7 @@ import csv
 from io import StringIO
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.github_client import RepositorySnapshot, github_client_dependency
 from app.main import app
@@ -51,6 +52,34 @@ def test_snapshot_store_limits_history(tmp_path: Path) -> None:
 
     assert len(store.history("octocat/hello-world", limit=1)) == 1
     assert store.history("octocat/missing") == []
+
+
+def test_snapshot_retention_prunes_each_repository_independently(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db", retention_per_repository=2)
+    store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+    store.save(snapshot("2026-09-21T14:00:00+00:00", stars=12))
+    store.save(snapshot("2026-09-21T16:00:00+00:00", stars=14))
+    store.save(snapshot(
+        "2026-09-21T13:00:00+00:00",
+        repository="octocat/another-repo",
+        stars=4,
+    ))
+
+    assert [item.stars for item in store.history("octocat/hello-world")] == [14, 12]
+    assert [item.stars for item in store.history("octocat/another-repo")] == [4]
+
+
+def test_snapshot_retention_configuration_is_validated(tmp_path: Path, monkeypatch) -> None:
+    with pytest.raises(ValueError, match="retention_per_repository"):
+        SnapshotStore(tmp_path / "snapshots.db", retention_per_repository=0)
+
+    monkeypatch.setenv("DEVPULSE_DB_PATH", str(tmp_path / "environment.db"))
+    monkeypatch.setenv("DEVPULSE_SNAPSHOT_RETENTION", "2")
+    assert SnapshotStore.from_environment().retention_per_repository == 2
+
+    monkeypatch.setenv("DEVPULSE_SNAPSHOT_RETENTION", "unlimited")
+    with pytest.raises(ValueError, match="positive integer"):
+        SnapshotStore.from_environment()
 
 
 def test_snapshot_store_returns_latest_snapshot_per_repository(tmp_path: Path) -> None:
