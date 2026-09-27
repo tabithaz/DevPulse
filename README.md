@@ -18,6 +18,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Browser dashboard for portfolio totals, snapshot deltas, collection, and repository trends
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
+- Portfolio-wide snapshot deltas for measuring repository growth in one request
 
 ## Stack
 
@@ -127,6 +128,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
 | `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
+| `GET` | `/github/snapshots/delta` | Aggregate changes across each repository's latest two snapshots |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -164,6 +166,12 @@ counts, aggregate stars, forks, open issues, language coverage, and the current
 repository records without making live GitHub requests. The response includes a
 stable `ETag` and honors `If-None-Match` with HTTP 304 when the portfolio has not
 changed, reducing response work for dashboards and polling clients.
+
+Use `GET /github/snapshots/delta` to compare each tracked repository's two
+newest snapshots in one database query. The response aggregates changes in
+stars, forks, and open issues, counts repositories gaining or losing stars,
+and identifies repositories that need another collection before comparison.
+It also supports ETag revalidation for efficient portfolio polling.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 

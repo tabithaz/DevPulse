@@ -20,6 +20,7 @@ from app.github_client import (
     GitHubNotFoundError,
     GitHubRateLimitError,
     GitHubServiceError,
+    RepositorySnapshot,
     github_client_dependency,
 )
 from app.lead_time import analyze_lead_time
@@ -55,6 +56,19 @@ def conditional_json_response(request: Request, payload: dict) -> Response:
     if "*" in candidates or etag in candidates:
         return Response(status_code=304, headers=cache_headers)
     return JSONResponse(content=payload, headers=cache_headers)
+
+
+def snapshot_changes(
+    current: RepositorySnapshot,
+    previous: RepositorySnapshot,
+) -> dict[str, int | bool]:
+    return {
+        "stars": current.stars - previous.stars,
+        "forks": current.forks - previous.forks,
+        "open_issues": current.open_issues - previous.open_issues,
+        "archived_changed": current.archived != previous.archived,
+        "default_branch_changed": current.default_branch != previous.default_branch,
+    }
 
 
 class RepositoryActivity(BaseModel):
@@ -325,13 +339,7 @@ def github_repository_snapshot_delta(
         "status": "ready",
         "current": current.to_dict(),
         "previous_collected_at": previous.collected_at,
-        "changes": {
-            "stars": current.stars - previous.stars,
-            "forks": current.forks - previous.forks,
-            "open_issues": current.open_issues - previous.open_issues,
-            "archived_changed": current.archived != previous.archived,
-            "default_branch_changed": current.default_branch != previous.default_branch,
-        },
+        "changes": snapshot_changes(current, previous),
     }
 
 
@@ -358,6 +366,56 @@ def github_snapshot_portfolio_summary(
         "repositories": [snapshot.to_dict() for snapshot in snapshots],
     }
     return conditional_json_response(request, summary)
+
+
+@app.get("/github/snapshots/delta")
+def github_snapshot_portfolio_delta(
+    request: Request,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+) -> Response:
+    """Compare the latest two snapshots across the tracked portfolio."""
+    histories = store.latest_history(limit_per_repository=2)
+    repositories = []
+    total_changes = {"stars": 0, "forks": 0, "open_issues": 0}
+    gaining_stars = 0
+    losing_stars = 0
+
+    for repository, history in histories.items():
+        current = history[0]
+        if len(history) == 1:
+            repositories.append({
+                "repository": repository,
+                "status": "insufficient_data",
+                "current_collected_at": current.collected_at,
+                "previous_collected_at": None,
+                "changes": None,
+            })
+            continue
+
+        previous = history[1]
+        changes = snapshot_changes(current, previous)
+        for metric in total_changes:
+            total_changes[metric] += int(changes[metric])
+        gaining_stars += changes["stars"] > 0
+        losing_stars += changes["stars"] < 0
+        repositories.append({
+            "repository": repository,
+            "status": "ready",
+            "current_collected_at": current.collected_at,
+            "previous_collected_at": previous.collected_at,
+            "changes": changes,
+        })
+
+    comparable = sum(item["status"] == "ready" for item in repositories)
+    payload = {
+        "repositories_tracked": len(repositories),
+        "comparable_repositories": comparable,
+        "repositories_gaining_stars": gaining_stars,
+        "repositories_losing_stars": losing_stars,
+        "total_changes": total_changes,
+        "repositories": repositories,
+    }
+    return conditional_json_response(request, payload)
 
 
 @app.post("/delivery/lead-time")

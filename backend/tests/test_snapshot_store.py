@@ -101,6 +101,23 @@ def test_snapshot_store_returns_latest_snapshot_per_repository(tmp_path: Path) -
     assert [item.stars for item in latest] == [4, 12]
 
 
+def test_snapshot_store_returns_bounded_history_for_every_repository(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    for hour, stars in ((12, 10), (14, 12), (16, 15)):
+        store.save(snapshot(f"2026-09-21T{hour}:00:00+00:00", stars=stars))
+    store.save(snapshot(
+        "2026-09-21T13:00:00+00:00",
+        repository="octocat/another-repo",
+        stars=4,
+    ))
+
+    histories = store.latest_history(limit_per_repository=2)
+
+    assert list(histories) == ["octocat/another-repo", "octocat/hello-world"]
+    assert [item.stars for item in histories["octocat/hello-world"]] == [15, 12]
+    assert [item.stars for item in histories["octocat/another-repo"]] == [4]
+
+
 class StubGitHubClient:
     def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
         assert (owner, repository) == ("octocat", "hello-world")
@@ -283,3 +300,49 @@ def test_snapshot_portfolio_summary_supports_etag_revalidation(tmp_path: Path) -
     assert changed.status_code == 200
     assert changed.json()["total_stars"] == 12
     assert changed.headers["etag"] != first.headers["etag"]
+
+
+def test_snapshot_portfolio_delta_aggregates_latest_changes(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))
+    store.save(snapshot("2026-09-21T14:00:00+00:00", stars=13))
+    store.save(snapshot(
+        "2026-09-21T13:00:00+00:00",
+        repository="octocat/new-repo",
+        stars=4,
+    ))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/delta")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["repositories_tracked"] == 2
+    assert response.json()["comparable_repositories"] == 1
+    assert response.json()["repositories_gaining_stars"] == 1
+    assert response.json()["repositories_losing_stars"] == 0
+    assert response.json()["total_changes"] == {
+        "stars": 3, "forks": 0, "open_issues": 0,
+    }
+    assert response.json()["repositories"][1]["status"] == "insufficient_data"
+
+
+def test_snapshot_portfolio_delta_handles_empty_store_and_etag(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/delta")
+        unchanged = client.get(
+            "/github/snapshots/delta",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["repositories_tracked"] == 0
+    assert response.json()["total_changes"] == {
+        "stars": 0, "forks": 0, "open_issues": 0,
+    }
+    assert unchanged.status_code == 304
