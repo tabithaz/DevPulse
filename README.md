@@ -19,6 +19,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
+- Atomic batch collection for up to 25 repositories per request
 
 ## Stack
 
@@ -124,6 +125,7 @@ Example response:
 | `GET` | `/dashboard` | Interactive repository snapshot dashboard |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
+| `POST` | `/github/snapshots/collect` | Collect and atomically persist up to 25 repository snapshots |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
 | `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
@@ -147,6 +149,15 @@ Persist the current snapshot and retrieve its history with:
 ```bash
 curl -X POST http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots
 curl "http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots?limit=10"
+```
+
+Collect several repositories in one bounded request with
+`POST /github/snapshots/collect`. DevPulse fetches every repository before
+opening the storage transaction, then saves and prunes the complete batch
+atomically. An upstream failure leaves snapshot history unchanged.
+
+```json
+{"repositories":[{"owner":"tabithaz","repository":"DevPulse"},{"owner":"tabithaz","repository":"TelemetryGuard"}]}
 ```
 
 After collecting at least two snapshots, call

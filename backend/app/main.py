@@ -101,6 +101,35 @@ class ActivitySummaryRequest(BaseModel):
         return self
 
 
+class RepositoryTarget(BaseModel):
+    owner: str = Field(min_length=1, max_length=39)
+    repository: str = Field(min_length=1, max_length=100)
+
+    @field_validator("owner", "repository")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("repository identifiers must not be blank")
+        if "/" in normalized or any(character.isspace() for character in normalized):
+            raise ValueError("repository identifiers must not contain slashes or whitespace")
+        return normalized
+
+
+class SnapshotCollectionRequest(BaseModel):
+    repositories: list[RepositoryTarget] = Field(min_length=1, max_length=25)
+
+    @model_validator(mode="after")
+    def reject_duplicate_repositories(self) -> "SnapshotCollectionRequest":
+        names = [
+            f"{target.owner}/{target.repository}".casefold()
+            for target in self.repositories
+        ]
+        if len(names) != len(set(names)):
+            raise ValueError("repositories must be unique")
+        return self
+
+
 class LeadTimeRequest(BaseModel):
     lead_times_hours: list[Annotated[float, Field(ge=0)]]
     warning_hours: float = Field(default=48.0, gt=0)
@@ -271,6 +300,34 @@ def collect_github_repository_snapshot(
 
     store.save(snapshot)
     return snapshot.to_dict()
+
+
+@app.post("/github/snapshots/collect", status_code=201)
+def collect_github_repository_snapshots(
+    payload: SnapshotCollectionRequest,
+    client: Annotated[GitHubClient, Depends(github_client_dependency)],
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+) -> dict:
+    """Collect a bounded repository batch and persist it atomically."""
+    snapshots = []
+    for target in payload.repositories:
+        try:
+            snapshots.append(client.repository_snapshot(target.owner, target.repository))
+        except GitHubNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except GitHubRateLimitError as exc:
+            detail = "GitHub API rate limit exceeded"
+            if exc.reset_at:
+                detail += f"; resets at Unix timestamp {exc.reset_at}"
+            raise HTTPException(status_code=429, detail=detail) from exc
+        except GitHubServiceError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    store.save_many(snapshots)
+    return {
+        "collected": len(snapshots),
+        "repositories": [snapshot.to_dict() for snapshot in snapshots],
+    }
 
 
 @app.get("/github/{owner}/{repository}/snapshots")

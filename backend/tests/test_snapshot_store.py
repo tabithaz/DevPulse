@@ -1,11 +1,16 @@
 from pathlib import Path
 import csv
 from io import StringIO
+import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
 
-from app.github_client import RepositorySnapshot, github_client_dependency
+from app.github_client import (
+    GitHubNotFoundError,
+    RepositorySnapshot,
+    github_client_dependency,
+)
 from app.main import app
 from app.snapshot_store import SnapshotStore, snapshot_store_dependency
 
@@ -52,6 +57,16 @@ def test_snapshot_store_limits_history(tmp_path: Path) -> None:
 
     assert len(store.history("octocat/hello-world", limit=1)) == 1
     assert store.history("octocat/missing") == []
+
+
+def test_snapshot_store_batch_is_atomic(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    duplicate = snapshot("2026-09-21T12:00:00+00:00")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.save_many([duplicate, duplicate])
+
+    assert store.history("octocat/hello-world") == []
 
 
 def test_snapshot_retention_prunes_each_repository_independently(tmp_path: Path) -> None:
@@ -124,6 +139,17 @@ class StubGitHubClient:
         return snapshot("2026-09-21T14:00:00+00:00", stars=12)
 
 
+class BatchGitHubClient:
+    def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
+        if repository == "missing":
+            raise GitHubNotFoundError(f"repository {owner}/{repository} was not found")
+        return snapshot(
+            "2026-09-21T14:00:00+00:00",
+            repository=f"{owner}/{repository}",
+            stars=12 if repository == "hello-world" else 7,
+        )
+
+
 def test_collect_and_read_snapshot_history(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path / "snapshots.db")
     app.dependency_overrides[github_client_dependency] = lambda: StubGitHubClient()
@@ -138,6 +164,64 @@ def test_collect_and_read_snapshot_history(tmp_path: Path) -> None:
     assert collected.json()["stars"] == 12
     assert history.status_code == 200
     assert history.json() == [collected.json()]
+
+
+def test_batch_collection_persists_all_repositories(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[github_client_dependency] = lambda: BatchGitHubClient()
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.post("/github/snapshots/collect", json={
+            "repositories": [
+                {"owner": "octocat", "repository": "hello-world"},
+                {"owner": "octocat", "repository": "analytics"},
+            ]
+        })
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert response.json()["collected"] == 2
+    assert len(store.history("octocat/hello-world")) == 1
+    assert len(store.history("octocat/analytics")) == 1
+
+
+def test_batch_collection_rejects_duplicates_and_is_atomic_on_upstream_failure(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[github_client_dependency] = lambda: BatchGitHubClient()
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        duplicate = client.post("/github/snapshots/collect", json={
+            "repositories": [
+                {"owner": "octocat", "repository": "hello-world"},
+                {"owner": "OCTOCAT", "repository": "HELLO-WORLD"},
+            ]
+        })
+        failed = client.post("/github/snapshots/collect", json={
+            "repositories": [
+                {"owner": "octocat", "repository": "hello-world"},
+                {"owner": "octocat", "repository": "missing"},
+            ]
+        })
+        oversized = client.post("/github/snapshots/collect", json={
+            "repositories": [
+                {"owner": "octocat", "repository": f"repository-{index}"}
+                for index in range(26)
+            ]
+        })
+        malformed = client.post("/github/snapshots/collect", json={
+            "repositories": [{"owner": "octocat/team", "repository": "repo"}]
+        })
+    finally:
+        app.dependency_overrides.clear()
+
+    assert duplicate.status_code == 422
+    assert failed.status_code == 404
+    assert oversized.status_code == 422
+    assert malformed.status_code == 422
+    assert store.latest() == []
 
 
 def test_snapshot_history_validates_limit(tmp_path: Path) -> None:

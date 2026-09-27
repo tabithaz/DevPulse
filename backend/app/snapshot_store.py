@@ -60,43 +60,47 @@ class SnapshotStore:
             )
 
     def save(self, snapshot: RepositorySnapshot) -> None:
+        self.save_many([snapshot])
+
+    def save_many(self, snapshots: list[RepositorySnapshot]) -> None:
+        """Persist and prune a snapshot batch in one transaction."""
+        if not snapshots:
+            raise ValueError("snapshots must not be empty")
         with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO repository_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    snapshot.repository,
-                    snapshot.description,
-                    snapshot.default_branch,
-                    snapshot.language,
-                    snapshot.stars,
-                    snapshot.forks,
-                    snapshot.open_issues,
-                    snapshot.archived,
-                    snapshot.created_at,
-                    snapshot.pushed_at,
-                    snapshot.collected_at,
-                ),
-            )
-            connection.execute(
-                """
-                DELETE FROM repository_snapshots
-                WHERE repository = ?
-                  AND rowid NOT IN (
-                      SELECT rowid
-                      FROM repository_snapshots
-                      WHERE repository = ?
-                      ORDER BY collected_at DESC
-                      LIMIT ?
-                  )
-                """,
-                (
-                    snapshot.repository,
-                    snapshot.repository,
-                    self.retention_per_repository,
-                ),
-            )
+            for snapshot in snapshots:
+                connection.execute(
+                    """
+                    INSERT INTO repository_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot.repository,
+                        snapshot.description,
+                        snapshot.default_branch,
+                        snapshot.language,
+                        snapshot.stars,
+                        snapshot.forks,
+                        snapshot.open_issues,
+                        snapshot.archived,
+                        snapshot.created_at,
+                        snapshot.pushed_at,
+                        snapshot.collected_at,
+                    ),
+                )
+            for repository in {snapshot.repository for snapshot in snapshots}:
+                connection.execute(
+                    """
+                    DELETE FROM repository_snapshots
+                    WHERE repository = ?
+                      AND rowid NOT IN (
+                          SELECT rowid
+                          FROM repository_snapshots
+                          WHERE repository = ?
+                          ORDER BY collected_at DESC
+                          LIMIT ?
+                      )
+                    """,
+                    (repository, repository, self.retention_per_repository),
+                )
 
     def check_connection(self) -> None:
         """Raise when the configured SQLite database cannot serve queries."""
