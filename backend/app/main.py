@@ -644,6 +644,59 @@ def github_snapshot_portfolio_delta(
     return conditional_json_response(request, payload)
 
 
+@app.get("/github/snapshots/trends")
+def github_snapshot_portfolio_trends(
+    request: Request,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=30, ge=2, le=365),
+) -> Response:
+    """Rank longer-term growth across every tracked repository."""
+    histories = store.latest_history(limit_per_repository=limit)
+    trends = [
+        repository_trend(history, repository)
+        for repository, history in histories.items()
+    ]
+    ready = [trend for trend in trends if trend["status"] == "ready"]
+    incomplete = [trend for trend in trends if trend["status"] != "ready"]
+
+    def growth_rank(trend: dict) -> tuple[bool, float, str]:
+        stars_per_day = trend["per_day"]["stars"]
+        return (
+            stars_per_day is None,
+            -(stars_per_day or 0.0),
+            trend["repository"].casefold(),
+        )
+
+    ready.sort(key=growth_rank)
+    incomplete.sort(key=lambda trend: trend["repository"].casefold())
+    metrics = ("stars", "forks", "open_issues")
+    total_per_day = {
+        metric: round(sum(
+            trend["per_day"][metric]
+            for trend in ready
+            if trend["per_day"][metric] is not None
+        ), 3)
+        for metric in metrics
+    }
+    payload = {
+        "repositories_tracked": len(trends),
+        "comparable_repositories": len(ready),
+        "insufficient_data_repositories": len(incomplete),
+        "fastest_growing_repository": (
+            ready[0]["repository"]
+            if ready and ready[0]["per_day"]["stars"] is not None
+            else None
+        ),
+        "total_net_changes": {
+            metric: sum(trend["net_changes"][metric] for trend in ready)
+            for metric in metrics
+        },
+        "total_per_day": total_per_day,
+        "repositories": ready + incomplete,
+    }
+    return conditional_json_response(request, payload)
+
+
 @app.post("/delivery/lead-time")
 def lead_time_report(payload: LeadTimeRequest) -> dict:
     report = analyze_lead_time(

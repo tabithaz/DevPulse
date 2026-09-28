@@ -606,3 +606,82 @@ def test_snapshot_portfolio_delta_handles_empty_store_and_etag(tmp_path: Path) -
         "stars": 0, "forks": 0, "open_issues": 0,
     }
     assert unchanged.status_code == 304
+
+
+def test_snapshot_portfolio_trends_rank_growth_and_aggregate_velocity(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    for repository, starting_stars, ending_stars, ending_forks in (
+        ("octocat/steady", 10, 12, 4),
+        ("octocat/fast", 20, 28, 7),
+    ):
+        store.save(snapshot(
+            "2026-09-21T12:00:00+00:00",
+            repository=repository,
+            stars=starting_stars,
+            forks=2,
+            open_issues=5,
+        ))
+        store.save(snapshot(
+            "2026-09-23T12:00:00+00:00",
+            repository=repository,
+            stars=ending_stars,
+            forks=ending_forks,
+            open_issues=3,
+        ))
+    store.save(snapshot(
+        "2026-09-23T12:00:00+00:00",
+        repository="octocat/new",
+        stars=1,
+    ))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/trends?limit=30")
+        cached = client.get(
+            "/github/snapshots/trends?limit=30",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["repositories_tracked"] == 3
+    assert response.json()["comparable_repositories"] == 2
+    assert response.json()["insufficient_data_repositories"] == 1
+    assert response.json()["fastest_growing_repository"] == "octocat/fast"
+    assert response.json()["total_net_changes"] == {
+        "stars": 10, "forks": 7, "open_issues": -4,
+    }
+    assert response.json()["total_per_day"] == {
+        "stars": 5.0, "forks": 3.5, "open_issues": -2.0,
+    }
+    assert [
+        item["repository"] for item in response.json()["repositories"]
+    ] == ["octocat/fast", "octocat/steady", "octocat/new"]
+    assert cached.status_code == 304
+    assert cached.content == b""
+
+
+def test_snapshot_portfolio_trends_handle_empty_store_and_invalid_limit(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/trends")
+        invalid = client.get("/github/snapshots/trends?limit=1")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repositories_tracked": 0,
+        "comparable_repositories": 0,
+        "insufficient_data_repositories": 0,
+        "fastest_growing_repository": None,
+        "total_net_changes": {"stars": 0, "forks": 0, "open_issues": 0},
+        "total_per_day": {"stars": 0, "forks": 0, "open_issues": 0},
+        "repositories": [],
+    }
+    assert invalid.status_code == 422

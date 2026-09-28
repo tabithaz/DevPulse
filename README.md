@@ -20,6 +20,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Configurable per-repository snapshot retention with transactional pruning
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
 - Repository trend velocity and volatility across bounded snapshot windows
+- Portfolio-wide growth rankings and aggregate repository velocity
 - Atomic batch collection for up to 25 repositories per request
 - Durable idempotency keys for retry-safe snapshot collection
 
@@ -134,6 +135,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshots/trend?limit=30` | Measure historical growth velocity and volatility |
 | `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
 | `GET` | `/github/snapshots/delta` | Aggregate changes across each repository's latest two snapshots |
+| `GET` | `/github/snapshots/trends?limit=30` | Rank portfolio growth across stored snapshot windows |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -199,6 +201,12 @@ newest snapshots in one database query. The response aggregates changes in
 stars, forks, and open issues, counts repositories gaining or losing stars,
 and identifies repositories that need another collection before comparison.
 It also supports ETag revalidation for efficient portfolio polling.
+
+Use `GET /github/snapshots/trends?limit=30` to compare longer-term growth
+across the full tracked portfolio. Repositories are ranked by star velocity,
+with aggregate net changes and per-day growth for stars, forks, and open issues.
+Repositories without enough stored history remain visible as insufficient data,
+and the response supports ETag revalidation without consuming GitHub API quota.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 
