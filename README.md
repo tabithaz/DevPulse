@@ -19,6 +19,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
+- Repository trend velocity and volatility across bounded snapshot windows
 - Atomic batch collection for up to 25 repositories per request
 - Durable idempotency keys for retry-safe snapshot collection
 
@@ -130,6 +131,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
 | `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
+| `GET` | `/github/{owner}/{repository}/snapshots/trend?limit=30` | Measure historical growth velocity and volatility |
 | `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
 | `GET` | `/github/snapshots/delta` | Aggregate changes across each repository's latest two snapshots |
 | `POST` | `/activity/summary` | Aggregate repository activity |
@@ -173,6 +175,12 @@ After collecting at least two snapshots, call
 forks, open issues, archived state, and default branch. The endpoint reads
 stored history without making another GitHub API request. It returns
 `no_data` or `insufficient_data` until a comparison is possible.
+
+Use `GET /github/tabithaz/DevPulse/snapshots/trend?limit=30` to analyze a
+longer stored window. The response reports net star, fork, and open-issue
+changes, normalized per-day rates, and the population volatility of changes
+between collections. Results include a stable ETag for efficient polling and
+do not consume GitHub API quota.
 
 Download up to 365 stored snapshots for a repository with
 `GET /github/tabithaz/DevPulse/snapshots/export`. Rows are ordered from newest

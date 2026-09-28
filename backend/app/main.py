@@ -1,11 +1,12 @@
 from dataclasses import asdict
 import csv
+from datetime import datetime
 import hashlib
 from io import StringIO
 import json
 import sqlite3
 from pathlib import Path
-from statistics import median
+from statistics import median, pstdev
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
@@ -72,6 +73,75 @@ def snapshot_changes(
         "open_issues": current.open_issues - previous.open_issues,
         "archived_changed": current.archived != previous.archived,
         "default_branch_changed": current.default_branch != previous.default_branch,
+    }
+
+
+def repository_trend(snapshots: list[RepositorySnapshot], repository: str) -> dict:
+    """Summarize bounded repository growth from oldest to newest snapshot."""
+    empty_metrics = {
+        "net_changes": None,
+        "per_day": None,
+        "change_volatility": None,
+    }
+    if not snapshots:
+        return {
+            "repository": repository,
+            "status": "no_data",
+            "snapshots_analyzed": 0,
+            "window": None,
+            **empty_metrics,
+        }
+    if len(snapshots) == 1:
+        collected_at = snapshots[0].collected_at
+        return {
+            "repository": repository,
+            "status": "insufficient_data",
+            "snapshots_analyzed": 1,
+            "window": {
+                "started_at": collected_at,
+                "ended_at": collected_at,
+                "elapsed_days": 0.0,
+            },
+            **empty_metrics,
+        }
+
+    ordered = list(reversed(snapshots))
+    oldest, newest = ordered[0], ordered[-1]
+    elapsed_seconds = (
+        datetime.fromisoformat(newest.collected_at)
+        - datetime.fromisoformat(oldest.collected_at)
+    ).total_seconds()
+    elapsed_days = max(0.0, elapsed_seconds / 86400.0)
+    fields = ("stars", "forks", "open_issues")
+    net_changes = {
+        field: getattr(newest, field) - getattr(oldest, field)
+        for field in fields
+    }
+    interval_changes = {
+        field: [
+            getattr(current, field) - getattr(previous, field)
+            for previous, current in zip(ordered, ordered[1:])
+        ]
+        for field in fields
+    }
+    return {
+        "repository": repository,
+        "status": "ready",
+        "snapshots_analyzed": len(ordered),
+        "window": {
+            "started_at": oldest.collected_at,
+            "ended_at": newest.collected_at,
+            "elapsed_days": round(elapsed_days, 3),
+        },
+        "net_changes": net_changes,
+        "per_day": {
+            field: round(change / elapsed_days, 3) if elapsed_days > 0 else None
+            for field, change in net_changes.items()
+        },
+        "change_volatility": {
+            field: round(pstdev(changes), 3)
+            for field, changes in interval_changes.items()
+        },
     }
 
 
@@ -483,6 +553,20 @@ def github_repository_snapshot_delta(
         "previous_collected_at": previous.collected_at,
         "changes": snapshot_changes(current, previous),
     }
+
+
+@app.get("/github/{owner}/{repository}/snapshots/trend")
+def github_repository_snapshot_trend(
+    request: Request,
+    owner: str,
+    repository: str,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=30, ge=2, le=365),
+) -> Response:
+    """Measure repository growth velocity and volatility over stored history."""
+    name = f"{owner}/{repository}"
+    payload = repository_trend(store.history(name, limit=limit), name)
+    return conditional_json_response(request, payload)
 
 
 @app.get("/github/snapshots/summary")

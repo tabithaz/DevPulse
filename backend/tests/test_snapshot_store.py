@@ -20,6 +20,8 @@ client = TestClient(app)
 def snapshot(
     collected_at: str,
     stars: int = 10,
+    forks: int = 3,
+    open_issues: int = 2,
     repository: str = "octocat/hello-world",
     language: str | None = "Python",
     archived: bool = False,
@@ -30,8 +32,8 @@ def snapshot(
         default_branch="main",
         language=language,
         stars=stars,
-        forks=3,
-        open_issues=2,
+        forks=forks,
+        open_issues=open_issues,
         archived=archived,
         created_at="2024-01-01T00:00:00Z",
         pushed_at="2026-09-21T12:00:00Z",
@@ -403,6 +405,76 @@ def test_snapshot_delta_uses_latest_two_snapshots(tmp_path: Path) -> None:
         "stars": -3, "forks": 0, "open_issues": 0,
         "archived_changed": False, "default_branch_changed": False,
     }
+
+
+def test_snapshot_trend_reports_velocity_and_volatility(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    for day, stars, forks, issues in (
+        (21, 10, 2, 8),
+        (22, 13, 3, 7),
+        (23, 12, 5, 9),
+        (24, 18, 5, 6),
+    ):
+        store.save(snapshot(
+            f"2026-09-{day}T12:00:00+00:00",
+            stars=stars,
+            forks=forks,
+            open_issues=issues,
+        ))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get(
+            "/github/octocat/hello-world/snapshots/trend",
+            params={"limit": 4},
+        )
+        cached = client.get(
+            "/github/octocat/hello-world/snapshots/trend?limit=4",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repository": "octocat/hello-world",
+        "status": "ready",
+        "snapshots_analyzed": 4,
+        "window": {
+            "started_at": "2026-09-21T12:00:00+00:00",
+            "ended_at": "2026-09-24T12:00:00+00:00",
+            "elapsed_days": 3.0,
+        },
+        "net_changes": {"stars": 8, "forks": 3, "open_issues": -2},
+        "per_day": {"stars": 2.667, "forks": 1.0, "open_issues": -0.667},
+        "change_volatility": {
+            "stars": 2.867,
+            "forks": 0.816,
+            "open_issues": 2.055,
+        },
+    }
+    assert cached.status_code == 304
+    assert cached.content == b""
+
+
+def test_snapshot_trend_handles_empty_single_and_invalid_windows(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        empty = client.get("/github/octocat/hello-world/snapshots/trend")
+        store.save(snapshot("2026-09-21T12:00:00+00:00"))
+        single = client.get("/github/octocat/hello-world/snapshots/trend")
+        invalid = client.get(
+            "/github/octocat/hello-world/snapshots/trend",
+            params={"limit": 1},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert empty.json()["status"] == "no_data"
+    assert empty.json()["snapshots_analyzed"] == 0
+    assert single.json()["status"] == "insufficient_data"
+    assert single.json()["snapshots_analyzed"] == 1
+    assert invalid.status_code == 422
 
 
 def test_snapshot_portfolio_summary_aggregates_latest_snapshots(tmp_path: Path) -> None:
