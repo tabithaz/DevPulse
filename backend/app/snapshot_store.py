@@ -1,8 +1,13 @@
+import json
 import os
 import sqlite3
 from pathlib import Path
 
 from app.github_client import RepositorySnapshot
+
+
+class IdempotencyConflictError(ValueError):
+    """Raised when an idempotency key is reused for a different request."""
 
 
 class SnapshotStore:
@@ -58,6 +63,16 @@ class SnapshotStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS idempotency_requests (
+                    idempotency_key TEXT PRIMARY KEY,
+                    request_fingerprint TEXT NOT NULL,
+                    response_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
     def save(self, snapshot: RepositorySnapshot) -> None:
         self.save_many([snapshot])
@@ -101,6 +116,107 @@ class SnapshotStore:
                     """,
                     (repository, repository, self.retention_per_repository),
                 )
+
+    def idempotency_result(
+        self,
+        idempotency_key: str,
+        request_fingerprint: str,
+    ) -> dict | None:
+        """Return a stored response, rejecting keys bound to another request."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT request_fingerprint, response_json
+                FROM idempotency_requests
+                WHERE idempotency_key = ?
+                """,
+                (idempotency_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["request_fingerprint"] != request_fingerprint:
+            raise IdempotencyConflictError(
+                "idempotency key was already used for a different request"
+            )
+        return json.loads(row["response_json"])
+
+    def save_many_once(
+        self,
+        snapshots: list[RepositorySnapshot],
+        idempotency_key: str,
+        request_fingerprint: str,
+        response: dict,
+    ) -> tuple[dict, bool]:
+        """Atomically save snapshots and their replayable collection response."""
+        if not snapshots:
+            raise ValueError("snapshots must not be empty")
+        encoded = json.dumps(response, sort_keys=True, separators=(",", ":"))
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT request_fingerprint, response_json
+                FROM idempotency_requests
+                WHERE idempotency_key = ?
+                """,
+                (idempotency_key,),
+            ).fetchone()
+            if row is not None:
+                if row["request_fingerprint"] != request_fingerprint:
+                    raise IdempotencyConflictError(
+                        "idempotency key was already used for a different request"
+                    )
+                return json.loads(row["response_json"]), True
+
+            for snapshot in snapshots:
+                connection.execute(
+                    """
+                    INSERT INTO repository_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot.repository,
+                        snapshot.description,
+                        snapshot.default_branch,
+                        snapshot.language,
+                        snapshot.stars,
+                        snapshot.forks,
+                        snapshot.open_issues,
+                        snapshot.archived,
+                        snapshot.created_at,
+                        snapshot.pushed_at,
+                        snapshot.collected_at,
+                    ),
+                )
+            for repository in {snapshot.repository for snapshot in snapshots}:
+                connection.execute(
+                    """
+                    DELETE FROM repository_snapshots
+                    WHERE repository = ?
+                      AND rowid NOT IN (
+                          SELECT rowid FROM repository_snapshots
+                          WHERE repository = ?
+                          ORDER BY collected_at DESC LIMIT ?
+                      )
+                    """,
+                    (repository, repository, self.retention_per_repository),
+                )
+            connection.execute(
+                """
+                INSERT INTO idempotency_requests (
+                    idempotency_key, request_fingerprint, response_json
+                ) VALUES (?, ?, ?)
+                """,
+                (idempotency_key, request_fingerprint, encoded),
+            )
+            connection.execute(
+                """
+                DELETE FROM idempotency_requests
+                WHERE rowid NOT IN (
+                    SELECT rowid FROM idempotency_requests
+                    ORDER BY rowid DESC LIMIT 1000
+                )
+                """
+            )
+        return response, False
 
     def check_connection(self) -> None:
         """Raise when the configured SQLite database cannot serve queries."""

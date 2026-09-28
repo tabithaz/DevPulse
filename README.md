@@ -20,6 +20,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Configurable per-repository snapshot retention with transactional pruning
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
 - Atomic batch collection for up to 25 repositories per request
+- Durable idempotency keys for retry-safe snapshot collection
 
 ## Stack
 
@@ -159,6 +160,13 @@ atomically. An upstream failure leaves snapshot history unchanged.
 ```json
 {"repositories":[{"owner":"tabithaz","repository":"DevPulse"},{"owner":"tabithaz","repository":"TelemetryGuard"}]}
 ```
+
+Both collection endpoints accept an `Idempotency-Key` header. Repeating the
+same request with the same key returns the original `201` response with
+`Idempotency-Replayed: true` without calling GitHub or writing another
+snapshot. Reusing a key for a different repository request returns HTTP 409.
+The newest 1,000 completed keys are retained in SQLite so retry safety survives
+service restarts while storage remains bounded.
 
 After collecting at least two snapshots, call
 `GET /github/tabithaz/DevPulse/snapshots/delta` to see changes in stars,

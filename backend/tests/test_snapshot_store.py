@@ -150,6 +150,19 @@ class BatchGitHubClient:
         )
 
 
+class CountingGitHubClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
+        self.calls += 1
+        return snapshot(
+            f"2026-09-21T{13 + self.calls}:00:00+00:00",
+            repository=f"{owner}/{repository}",
+            stars=10 + self.calls,
+        )
+
+
 def test_collect_and_read_snapshot_history(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path / "snapshots.db")
     app.dependency_overrides[github_client_dependency] = lambda: StubGitHubClient()
@@ -164,6 +177,97 @@ def test_collect_and_read_snapshot_history(tmp_path: Path) -> None:
     assert collected.json()["stars"] == 12
     assert history.status_code == 200
     assert history.json() == [collected.json()]
+
+
+def test_single_collection_idempotency_survives_store_restart(tmp_path: Path) -> None:
+    database_path = tmp_path / "snapshots.db"
+    github = CountingGitHubClient()
+    store = SnapshotStore(database_path)
+    app.dependency_overrides[github_client_dependency] = lambda: github
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        first = client.post(
+            "/github/octocat/hello-world/snapshots",
+            headers={"Idempotency-Key": "collection-42"},
+        )
+        store = SnapshotStore(database_path)
+        replay = client.post(
+            "/github/octocat/hello-world/snapshots",
+            headers={"Idempotency-Key": "collection-42"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == replay.status_code == 201
+    assert first.json() == replay.json()
+    assert first.headers["idempotency-replayed"] == "false"
+    assert replay.headers["idempotency-replayed"] == "true"
+    assert github.calls == 1
+    assert len(store.history("octocat/hello-world")) == 1
+
+
+def test_collection_rejects_conflicting_and_malformed_idempotency_keys(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    github = CountingGitHubClient()
+    app.dependency_overrides[github_client_dependency] = lambda: github
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        first = client.post(
+            "/github/octocat/hello-world/snapshots",
+            headers={"Idempotency-Key": "collection-42"},
+        )
+        conflict = client.post(
+            "/github/octocat/another-repo/snapshots",
+            headers={"Idempotency-Key": "collection-42"},
+        )
+        malformed = client.post(
+            "/github/octocat/hello-world/snapshots",
+            headers={"Idempotency-Key": "contains spaces"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == (
+        "idempotency key was already used for a different request"
+    )
+    assert malformed.status_code == 422
+    assert github.calls == 1
+
+
+def test_batch_collection_replays_without_refetching_or_rewriting(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    github = CountingGitHubClient()
+    app.dependency_overrides[github_client_dependency] = lambda: github
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    payload = {
+        "repositories": [
+            {"owner": "octocat", "repository": "hello-world"},
+            {"owner": "octocat", "repository": "analytics"},
+        ]
+    }
+    try:
+        first = client.post(
+            "/github/snapshots/collect",
+            json=payload,
+            headers={"Idempotency-Key": "portfolio-2026-09-28"},
+        )
+        replay = client.post(
+            "/github/snapshots/collect",
+            json=payload,
+            headers={"Idempotency-Key": "portfolio-2026-09-28"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == replay.status_code == 201
+    assert first.json() == replay.json()
+    assert replay.headers["idempotency-replayed"] == "true"
+    assert github.calls == 2
+    assert len(store.latest()) == 2
 
 
 def test_batch_collection_persists_all_repositories(tmp_path: Path) -> None:

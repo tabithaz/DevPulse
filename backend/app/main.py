@@ -8,7 +8,7 @@ from pathlib import Path
 from statistics import median
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.change_failure import analyze_change_failure
@@ -24,7 +24,11 @@ from app.github_client import (
     github_client_dependency,
 )
 from app.lead_time import analyze_lead_time
-from app.snapshot_store import SnapshotStore, snapshot_store_dependency
+from app.snapshot_store import (
+    IdempotencyConflictError,
+    SnapshotStore,
+    snapshot_store_dependency,
+)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 app = FastAPI(
@@ -69,6 +73,32 @@ def snapshot_changes(
         "archived_changed": current.archived != previous.archived,
         "default_branch_changed": current.default_branch != previous.default_branch,
     }
+
+
+def collection_fingerprint(repositories: list[str]) -> str:
+    """Create a stable identity for an ordered collection request."""
+    encoded = json.dumps(repositories, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def replayed_collection(
+    store: SnapshotStore,
+    idempotency_key: str | None,
+    request_fingerprint: str,
+) -> Response | None:
+    if idempotency_key is None:
+        return None
+    try:
+        result = store.idempotency_result(idempotency_key, request_fingerprint)
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        return None
+    return JSONResponse(
+        status_code=201,
+        content=result,
+        headers={"Idempotency-Replayed": "true"},
+    )
 
 
 class RepositoryActivity(BaseModel):
@@ -285,7 +315,20 @@ def collect_github_repository_snapshot(
     repository: str,
     client: Annotated[GitHubClient, Depends(github_client_dependency)],
     store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
-) -> dict:
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ] = None,
+) -> Response:
+    fingerprint = collection_fingerprint([f"{owner}/{repository}".casefold()])
+    replay = replayed_collection(store, idempotency_key, fingerprint)
+    if replay is not None:
+        return replay
     try:
         snapshot = client.repository_snapshot(owner, repository)
     except GitHubNotFoundError as exc:
@@ -298,8 +341,21 @@ def collect_github_repository_snapshot(
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    store.save(snapshot)
-    return snapshot.to_dict()
+    result = snapshot.to_dict()
+    if idempotency_key is None:
+        store.save(snapshot)
+        return JSONResponse(status_code=201, content=result)
+    try:
+        result, replayed = store.save_many_once(
+            [snapshot], idempotency_key, fingerprint, result
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(
+        status_code=201,
+        content=result,
+        headers={"Idempotency-Replayed": str(replayed).lower()},
+    )
 
 
 @app.post("/github/snapshots/collect", status_code=201)
@@ -307,8 +363,24 @@ def collect_github_repository_snapshots(
     payload: SnapshotCollectionRequest,
     client: Annotated[GitHubClient, Depends(github_client_dependency)],
     store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
-) -> dict:
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ] = None,
+) -> Response:
     """Collect a bounded repository batch and persist it atomically."""
+    fingerprint = collection_fingerprint([
+        f"{target.owner}/{target.repository}".casefold()
+        for target in payload.repositories
+    ])
+    replay = replayed_collection(store, idempotency_key, fingerprint)
+    if replay is not None:
+        return replay
     snapshots = []
     for target in payload.repositories:
         try:
@@ -323,11 +395,24 @@ def collect_github_repository_snapshots(
         except GitHubServiceError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    store.save_many(snapshots)
-    return {
+    result = {
         "collected": len(snapshots),
         "repositories": [snapshot.to_dict() for snapshot in snapshots],
     }
+    if idempotency_key is None:
+        store.save_many(snapshots)
+        return JSONResponse(status_code=201, content=result)
+    try:
+        result, replayed = store.save_many_once(
+            snapshots, idempotency_key, fingerprint, result
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(
+        status_code=201,
+        content=result,
+        headers={"Idempotency-Replayed": str(replayed).lower()},
+    )
 
 
 @app.get("/github/{owner}/{repository}/snapshots")
