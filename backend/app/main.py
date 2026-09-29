@@ -697,6 +697,85 @@ def github_snapshot_portfolio_trends(
     return conditional_json_response(request, payload)
 
 
+@app.get("/github/snapshots/alerts")
+def github_snapshot_portfolio_alerts(
+    request: Request,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    issue_spike_threshold: int = Query(default=10, ge=1, le=10_000),
+) -> Response:
+    """Identify actionable changes across the latest repository snapshots."""
+    histories = store.latest_history(limit_per_repository=2)
+    alerts: list[dict] = []
+    insufficient_data = []
+
+    for repository, history in histories.items():
+        if len(history) < 2:
+            insufficient_data.append(repository)
+            continue
+        current, previous = history[:2]
+        changes = snapshot_changes(current, previous)
+        if changes["archived_changed"]:
+            alerts.append({
+                "repository": repository,
+                "severity": "critical" if current.archived else "info",
+                "type": "repository_archived" if current.archived else "repository_reactivated",
+                "previous": previous.archived,
+                "current": current.archived,
+                "detected_at": current.collected_at,
+            })
+        if changes["default_branch_changed"]:
+            alerts.append({
+                "repository": repository,
+                "severity": "warning",
+                "type": "default_branch_changed",
+                "previous": previous.default_branch,
+                "current": current.default_branch,
+                "detected_at": current.collected_at,
+            })
+        if changes["stars"] < 0:
+            alerts.append({
+                "repository": repository,
+                "severity": "warning",
+                "type": "stars_lost",
+                "change": changes["stars"],
+                "current": current.stars,
+                "detected_at": current.collected_at,
+            })
+        if changes["open_issues"] >= issue_spike_threshold:
+            alerts.append({
+                "repository": repository,
+                "severity": (
+                    "critical"
+                    if changes["open_issues"] >= issue_spike_threshold * 2
+                    else "warning"
+                ),
+                "type": "open_issue_spike",
+                "change": changes["open_issues"],
+                "current": current.open_issues,
+                "detected_at": current.collected_at,
+            })
+
+    severity_rank = {"critical": 0, "warning": 1, "info": 2}
+    alerts.sort(key=lambda alert: (
+        severity_rank[alert["severity"]],
+        alert["repository"].casefold(),
+        alert["type"],
+    ))
+    payload = {
+        "repositories_tracked": len(histories),
+        "repositories_evaluated": len(histories) - len(insufficient_data),
+        "insufficient_data_repositories": insufficient_data,
+        "issue_spike_threshold": issue_spike_threshold,
+        "alert_count": len(alerts),
+        "severity_counts": {
+            severity: sum(alert["severity"] == severity for alert in alerts)
+            for severity in ("critical", "warning", "info")
+        },
+        "alerts": alerts,
+    }
+    return conditional_json_response(request, payload)
+
+
 @app.post("/delivery/lead-time")
 def lead_time_report(payload: LeadTimeRequest) -> dict:
     report = analyze_lead_time(

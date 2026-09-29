@@ -25,11 +25,12 @@ def snapshot(
     repository: str = "octocat/hello-world",
     language: str | None = "Python",
     archived: bool = False,
+    default_branch: str = "main",
 ) -> RepositorySnapshot:
     return RepositorySnapshot(
         repository=repository,
         description="A test repository",
-        default_branch="main",
+        default_branch=default_branch,
         language=language,
         stars=stars,
         forks=forks,
@@ -683,5 +684,86 @@ def test_snapshot_portfolio_trends_handle_empty_store_and_invalid_limit(
         "total_net_changes": {"stars": 0, "forks": 0, "open_issues": 0},
         "total_per_day": {"stars": 0, "forks": 0, "open_issues": 0},
         "repositories": [],
+    }
+    assert invalid.status_code == 422
+
+
+def test_snapshot_portfolio_alerts_prioritize_actionable_changes(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot(
+        "2026-09-28T12:00:00+00:00",
+        repository="octocat/risky",
+        stars=10,
+        open_issues=2,
+    ))
+    store.save(snapshot(
+        "2026-09-29T12:00:00+00:00",
+        repository="octocat/risky",
+        stars=8,
+        open_issues=15,
+        archived=True,
+        default_branch="develop",
+    ))
+    store.save(snapshot(
+        "2026-09-28T12:00:00+00:00",
+        repository="octocat/restored",
+        archived=True,
+    ))
+    store.save(snapshot(
+        "2026-09-29T12:00:00+00:00",
+        repository="octocat/restored",
+        archived=False,
+    ))
+    store.save(snapshot(
+        "2026-09-29T12:00:00+00:00",
+        repository="octocat/new",
+    ))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/alerts?issue_spike_threshold=5")
+        cached = client.get(
+            "/github/snapshots/alerts?issue_spike_threshold=5",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["repositories_tracked"] == 3
+    assert payload["repositories_evaluated"] == 2
+    assert payload["insufficient_data_repositories"] == ["octocat/new"]
+    assert payload["alert_count"] == 5
+    assert payload["severity_counts"] == {"critical": 2, "warning": 2, "info": 1}
+    assert [alert["type"] for alert in payload["alerts"]] == [
+        "open_issue_spike",
+        "repository_archived",
+        "default_branch_changed",
+        "stars_lost",
+        "repository_reactivated",
+    ]
+    assert cached.status_code == 304
+
+
+def test_snapshot_portfolio_alerts_handle_no_data_and_validate_threshold(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/alerts")
+        invalid = client.get("/github/snapshots/alerts?issue_spike_threshold=0")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repositories_tracked": 0,
+        "repositories_evaluated": 0,
+        "insufficient_data_repositories": [],
+        "issue_spike_threshold": 10,
+        "alert_count": 0,
+        "severity_counts": {"critical": 0, "warning": 0, "info": 0},
+        "alerts": [],
     }
     assert invalid.status_code == 422
