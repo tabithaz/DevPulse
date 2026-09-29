@@ -31,13 +31,29 @@
     .delta.positive { color:var(--green); }
     .delta.negative { color:var(--red); }
     .portfolio { margin-bottom:14px; }
+    .insights { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+    .insight { padding:20px; min-width:0; }
+    .insight-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .insight-heading h2 { margin:0; }
+    .count { color:var(--muted); font-size:.78rem; }
+    .insight-list { display:flex; flex-direction:column; gap:0; margin-top:12px; }
+    .insight-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; border-top:1px solid var(--line); padding:10px 0; }
+    .insight-row:first-child { border-top:0; }
+    .insight-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .metric { color:var(--green); font-variant-numeric:tabular-nums; }
+    .alert-detail { color:var(--muted); font-size:.78rem; }
+    .severity { border-radius:999px; padding:3px 8px; font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+    .severity.critical { color:#fecdd3; background:#4c1724; }
+    .severity.warning { color:#fde68a; background:#422f0b; }
+    .severity.info { color:#bfdbfe; background:#172f52; }
+    .insight-empty { color:var(--muted); padding:18px 0 4px; }
     .trend { display:grid; grid-template-columns:1fr 280px; gap:14px; padding:22px; }
     svg { width:100%; height:170px; overflow:visible; }
     polyline { fill:none; stroke:var(--accent); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
     .history { display:flex; flex-direction:column; gap:8px; max-height:190px; overflow:auto; }
     .row { display:flex; justify-content:space-between; gap:12px; color:var(--muted); border-bottom:1px solid var(--line); padding:7px 0; }
     .empty { color:var(--muted); padding:36px 0; text-align:center; }
-    @media (max-width:760px) { header{align-items:start;flex-direction:column} form{grid-template-columns:1fr 1fr} .cards{grid-template-columns:1fr 1fr}.trend{grid-template-columns:1fr} }
+    @media (max-width:760px) { header{align-items:start;flex-direction:column} form{grid-template-columns:1fr 1fr} .cards{grid-template-columns:1fr 1fr}.trend,.insights{grid-template-columns:1fr} }
     @media (max-width:480px) { form,.cards{grid-template-columns:1fr} }
   </style>
 </head>
@@ -49,6 +65,16 @@
     <article class="panel card"><div class="label">Active</div><div class="value" id="portfolio-active">0</div></article>
     <article class="panel card"><div class="label">Total stars</div><div class="value" id="portfolio-stars">0</div></article>
     <article class="panel card"><div class="label">Languages</div><div class="value" id="portfolio-languages">0</div></article>
+  </section>
+  <section class="insights" aria-label="Portfolio operational insights">
+    <article class="panel insight">
+      <div class="insight-heading"><h2>Growth leaders</h2><span class="count" id="growth-count">0 comparable</span></div>
+      <div class="insight-list" id="growth-leaders"><div class="insight-empty">Collect two snapshots to rank growth.</div></div>
+    </article>
+    <article class="panel insight">
+      <div class="insight-heading"><h2>Repository alerts</h2><span class="count" id="alert-count">0 active</span></div>
+      <div class="insight-list" id="portfolio-alerts"><div class="insight-empty">No actionable changes detected.</div></div>
+    </article>
   </section>
   <section class="panel">
     <form id="repository-form">
@@ -92,15 +118,53 @@
     element.textContent = value === null ? 'Collect again to compare' : `${value > 0 ? '+' : ''}${value} since last snapshot`;
   }
 
+  function renderGrowthLeaders(trends) {
+    const comparable = trends.repositories.filter(item => item.status === 'ready');
+    document.querySelector('#growth-count').textContent = `${trends.comparable_repositories.toLocaleString()} comparable`;
+    const rows = comparable.slice(0, 4).map(item => {
+      const row = document.createElement('div'); row.className = 'insight-row';
+      const name = document.createElement('span'); name.className = 'insight-name'; name.textContent = item.repository;
+      const metric = document.createElement('strong'); metric.className = 'metric';
+      const velocity = item.per_day.stars;
+      metric.textContent = velocity === null ? 'No time window' : `${velocity > 0 ? '+' : ''}${velocity.toFixed(2)} stars/day`;
+      row.append(name, metric); return row;
+    });
+    const list = document.querySelector('#growth-leaders');
+    if (rows.length) list.replaceChildren(...rows);
+    else { const note = document.createElement('div'); note.className = 'insight-empty'; note.textContent = 'Collect two snapshots to rank growth.'; list.replaceChildren(note); }
+  }
+
+  function renderAlerts(payload) {
+    document.querySelector('#alert-count').textContent = `${payload.alert_count.toLocaleString()} active`;
+    const rows = payload.alerts.slice(0, 4).map(alert => {
+      const row = document.createElement('div'); row.className = 'insight-row';
+      const details = document.createElement('div');
+      const name = document.createElement('div'); name.className = 'insight-name'; name.textContent = alert.repository;
+      const type = document.createElement('div'); type.className = 'alert-detail'; type.textContent = alert.type.replaceAll('_', ' ');
+      details.append(name, type);
+      const severity = document.createElement('span'); severity.className = `severity ${alert.severity}`; severity.textContent = alert.severity;
+      row.append(details, severity); return row;
+    });
+    const list = document.querySelector('#portfolio-alerts');
+    if (rows.length) list.replaceChildren(...rows);
+    else { const note = document.createElement('div'); note.className = 'insight-empty'; note.textContent = 'No actionable changes detected.'; list.replaceChildren(note); }
+  }
+
   async function loadPortfolio() {
     try {
-      const response = await fetch('/github/snapshots/summary');
-      if (!response.ok) return;
-      const summary = await response.json();
+      const [summaryResponse, trendsResponse, alertsResponse] = await Promise.all([
+        fetch('/github/snapshots/summary'),
+        fetch('/github/snapshots/trends?limit=30'),
+        fetch('/github/snapshots/alerts')
+      ]);
+      if (!summaryResponse.ok) return;
+      const summary = await summaryResponse.json();
       document.querySelector('#portfolio-repositories').textContent = summary.repositories_tracked.toLocaleString();
       document.querySelector('#portfolio-active').textContent = summary.active_repositories.toLocaleString();
       document.querySelector('#portfolio-stars').textContent = summary.total_stars.toLocaleString();
       document.querySelector('#portfolio-languages').textContent = Object.keys(summary.languages).length.toLocaleString();
+      if (trendsResponse.ok) renderGrowthLeaders(await trendsResponse.json());
+      if (alertsResponse.ok) renderAlerts(await alertsResponse.json());
     } catch (_) { /* Repository workflow remains available if the summary is unavailable. */ }
   }
 

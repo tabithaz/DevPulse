@@ -15,7 +15,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Contributor metrics including ownership concentration, workload, reviewer load, and contribution streaks
 - Trend, volatility, forecasting, inactivity-gap, branch-staleness, and release-stability analysis
 - Automated pytest coverage and GitHub Actions validation
-- Browser dashboard for portfolio totals, snapshot deltas, collection, and repository trends
+- Browser dashboard for portfolio totals, growth rankings, alerts, snapshot deltas, and collection
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
@@ -48,8 +48,9 @@ uvicorn app.main:app --reload
 
 The dashboard is available at `http://127.0.0.1:8000/dashboard`. The API is available at `http://127.0.0.1:8000`, and FastAPI's interactive documentation is available at `http://127.0.0.1:8000/docs`.
 The dashboard loads portfolio-wide totals from stored snapshots and shows the
-change in stars, forks, and open issues between the selected repository's two
-latest collections.
+fastest-growing repositories and highest-priority portfolio alerts. It also
+shows the change in stars, forks, and open issues between the selected
+repository's two latest collections.
 
 ## Run with Docker
 

@@ -24,3 +24,10 @@ def test_dashboard_integrates_with_snapshot_api() -> None:
     assert "Portfolio snapshot summary" in response.text
     assert "`${route()}/delta`" in response.text
     assert "since last snapshot" in response.text
+    assert "Portfolio operational insights" in response.text
+    assert 'id="growth-leaders"' in response.text
+    assert 'id="portfolio-alerts"' in response.text
+    assert "/github/snapshots/trends?limit=30" in response.text
+    assert "/github/snapshots/alerts" in response.text
+    assert "renderGrowthLeaders" in response.text
+    assert "renderAlerts" in response.text
