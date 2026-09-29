@@ -688,6 +688,82 @@ def test_snapshot_portfolio_trends_handle_empty_store_and_invalid_limit(
     assert invalid.status_code == 422
 
 
+def test_snapshot_portfolio_report_combines_state_delta_and_velocity(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot(
+        "2026-09-27T12:00:00+00:00",
+        repository="octocat/growing",
+        stars=10,
+        forks=2,
+        open_issues=8,
+    ))
+    store.save(snapshot(
+        "2026-09-29T12:00:00+00:00",
+        repository="octocat/growing",
+        stars=16,
+        forks=4,
+        open_issues=6,
+        language="=PYTHON()",
+    ))
+    store.save(snapshot(
+        "2026-09-29T12:00:00+00:00",
+        repository="octocat/new",
+        stars=1,
+    ))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/report.csv?trend_limit=30")
+    finally:
+        app.dependency_overrides.clear()
+
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="devpulse-portfolio-report.csv"'
+    )
+    assert [row["repository"] for row in rows] == [
+        "octocat/growing", "octocat/new",
+    ]
+    assert rows[0] == {
+        "repository": "octocat/growing",
+        "status": "ready",
+        "collected_at": "2026-09-29T12:00:00+00:00",
+        "language": "'=PYTHON()",
+        "archived": "False",
+        "stars": "16",
+        "forks": "4",
+        "open_issues": "6",
+        "stars_change": "6",
+        "forks_change": "2",
+        "open_issues_change": "-2",
+        "stars_per_day": "3.0",
+        "forks_per_day": "1.0",
+        "open_issues_per_day": "-1.0",
+    }
+    assert rows[1]["status"] == "insufficient_data"
+    assert rows[1]["stars_change"] == ""
+    assert rows[1]["stars_per_day"] == ""
+
+
+def test_snapshot_portfolio_report_handles_empty_store_and_validates_limit(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        response = client.get("/github/snapshots/report.csv")
+        invalid = client.get("/github/snapshots/report.csv?trend_limit=1")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert list(csv.DictReader(StringIO(response.text))) == []
+    assert invalid.status_code == 422
+
+
 def test_snapshot_portfolio_alerts_prioritize_actionable_changes(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path / "snapshots.db")
     store.save(snapshot(

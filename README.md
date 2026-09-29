@@ -22,6 +22,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Repository trend velocity and volatility across bounded snapshot windows
 - Portfolio-wide growth rankings and aggregate repository velocity
 - Cached portfolio alerts for high-impact repository changes
+- Spreadsheet-safe portfolio reports combining state, deltas, and growth velocity
 - Atomic batch collection for up to 25 repositories per request
 - Durable idempotency keys for retry-safe snapshot collection
 
@@ -139,6 +140,7 @@ Example response:
 | `GET` | `/github/snapshots/delta` | Aggregate changes across each repository's latest two snapshots |
 | `GET` | `/github/snapshots/trends?limit=30` | Rank portfolio growth across stored snapshot windows |
 | `GET` | `/github/snapshots/alerts` | Identify actionable changes across tracked repositories |
+| `GET` | `/github/snapshots/report.csv?trend_limit=30` | Export portfolio state, deltas, and growth velocity as CSV |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
 | `POST` | `/delivery/lead-time` | Classify delivery lead-time health |
@@ -216,6 +218,12 @@ repository archival and reactivation, default-branch changes, star loss, and
 configurable open-issue spikes from the latest stored snapshots. Alerts are
 sorted by severity, repositories without enough history remain visible, and
 ETag revalidation keeps polling efficient without using GitHub API quota.
+
+Download `GET /github/snapshots/report.csv` for a spreadsheet-ready portfolio
+report. Each repository includes its current counts, latest changes, and
+normalized daily growth rates in one row. Text fields are escaped to prevent
+spreadsheet formula execution, and repositories with only one snapshot remain
+visible with an `insufficient_data` status.
 
 The deployment-health endpoint accepts aligned deployment timestamps, change counts, and success outcomes:
 

@@ -35,10 +35,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.17.0",
+    version="0.18.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
+
+
+def spreadsheet_safe_text(value: str | None) -> str:
+    """Prevent text fields from being interpreted as spreadsheet formulas."""
+    if value is None:
+        return ""
+    return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
 
 
 def conditional_json_response(request: Request, payload: dict) -> Response:
@@ -504,20 +511,15 @@ def export_github_repository_snapshots(
     limit: int = Query(default=365, ge=1, le=365),
 ) -> Response:
     """Download stored snapshot history without making a GitHub API request."""
-    def safe_text(value: str | None) -> str:
-        if value is None:
-            return ""
-        return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
-
     output = StringIO(newline="")
     writer = csv.writer(output)
     writer.writerow(("collected_at", "repository", "stars", "forks", "open_issues",
                      "language", "archived", "default_branch"))
     for snapshot in store.history(f"{owner}/{repository}", limit=limit):
-        writer.writerow((snapshot.collected_at, safe_text(snapshot.repository),
+        writer.writerow((snapshot.collected_at, spreadsheet_safe_text(snapshot.repository),
                          snapshot.stars, snapshot.forks, snapshot.open_issues,
-                         safe_text(snapshot.language), snapshot.archived,
-                         safe_text(snapshot.default_branch)))
+                         spreadsheet_safe_text(snapshot.language), snapshot.archived,
+                         spreadsheet_safe_text(snapshot.default_branch)))
 
     return Response(
         content=output.getvalue(),
@@ -695,6 +697,66 @@ def github_snapshot_portfolio_trends(
         "repositories": ready + incomplete,
     }
     return conditional_json_response(request, payload)
+
+
+@app.get("/github/snapshots/report.csv")
+def export_github_snapshot_portfolio_report(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    trend_limit: int = Query(default=30, ge=2, le=365),
+) -> Response:
+    """Export current state, latest deltas, and growth velocity in one report."""
+    histories = store.latest_history(limit_per_repository=trend_limit)
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow((
+        "repository", "status", "collected_at", "language", "archived",
+        "stars", "forks", "open_issues", "stars_change", "forks_change",
+        "open_issues_change", "stars_per_day", "forks_per_day",
+        "open_issues_per_day",
+    ))
+
+    for repository, history in histories.items():
+        current = history[0]
+        trend = repository_trend(history, repository)
+        if len(history) >= 2:
+            changes = snapshot_changes(current, history[1])
+            change_values: tuple[int | str, ...] = (
+                int(changes["stars"]),
+                int(changes["forks"]),
+                int(changes["open_issues"]),
+            )
+            velocity = trend["per_day"]
+            velocity_values = (
+                velocity["stars"],
+                velocity["forks"],
+                velocity["open_issues"],
+            )
+        else:
+            change_values = ("", "", "")
+            velocity_values = ("", "", "")
+
+        writer.writerow((
+            spreadsheet_safe_text(repository),
+            trend["status"],
+            current.collected_at,
+            spreadsheet_safe_text(current.language),
+            current.archived,
+            current.stars,
+            current.forks,
+            current.open_issues,
+            *change_values,
+            *velocity_values,
+        ))
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="devpulse-portfolio-report.csv"'
+            )
+        },
+    )
 
 
 @app.get("/github/snapshots/alerts")
