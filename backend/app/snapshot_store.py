@@ -15,11 +15,15 @@ class SnapshotStore:
         self,
         database_path: str | Path,
         retention_per_repository: int = 365,
+        collection_run_retention: int = 1000,
     ) -> None:
         if retention_per_repository <= 0:
             raise ValueError("retention_per_repository must be greater than zero")
+        if collection_run_retention <= 0:
+            raise ValueError("collection_run_retention must be greater than zero")
         self.database_path = str(database_path)
         self.retention_per_repository = retention_per_repository
+        self.collection_run_retention = collection_run_retention
         self._initialize()
 
     @classmethod
@@ -73,11 +77,26 @@ class SnapshotStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS collection_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trigger TEXT NOT NULL,
+                    repository_count INTEGER NOT NULL,
+                    repositories_json TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
-    def save(self, snapshot: RepositorySnapshot) -> None:
-        self.save_many([snapshot])
+    def save(self, snapshot: RepositorySnapshot, trigger: str = "api") -> None:
+        self.save_many([snapshot], trigger=trigger)
 
-    def save_many(self, snapshots: list[RepositorySnapshot]) -> None:
+    def save_many(
+        self,
+        snapshots: list[RepositorySnapshot],
+        trigger: str = "batch",
+    ) -> None:
         """Persist and prune a snapshot batch in one transaction."""
         if not snapshots:
             raise ValueError("snapshots must not be empty")
@@ -116,6 +135,7 @@ class SnapshotStore:
                     """,
                     (repository, repository, self.retention_per_repository),
                 )
+            self._record_collection_run(connection, snapshots, trigger)
 
     def idempotency_result(
         self,
@@ -146,6 +166,7 @@ class SnapshotStore:
         idempotency_key: str,
         request_fingerprint: str,
         response: dict,
+        trigger: str = "api",
     ) -> tuple[dict, bool]:
         """Atomically save snapshots and their replayable collection response."""
         if not snapshots:
@@ -216,7 +237,59 @@ class SnapshotStore:
                 )
                 """
             )
+            self._record_collection_run(connection, snapshots, trigger)
         return response, False
+
+    def _record_collection_run(
+        self,
+        connection: sqlite3.Connection,
+        snapshots: list[RepositorySnapshot],
+        trigger: str,
+    ) -> None:
+        if trigger not in {"api", "batch", "webhook"}:
+            raise ValueError("trigger must be api, batch, or webhook")
+        repositories = sorted({snapshot.repository for snapshot in snapshots})
+        connection.execute(
+            """
+            INSERT INTO collection_runs (trigger, repository_count, repositories_json)
+            VALUES (?, ?, ?)
+            """,
+            (trigger, len(repositories), json.dumps(repositories, separators=(",", ":"))),
+        )
+        connection.execute(
+            """
+            DELETE FROM collection_runs
+            WHERE id NOT IN (
+                SELECT id FROM collection_runs ORDER BY id DESC LIMIT ?
+            )
+            """,
+            (self.collection_run_retention,),
+        )
+
+    def collection_runs(self, limit: int = 50) -> list[dict]:
+        """Return the newest successful collection runs."""
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, trigger, repository_count, repositories_json, recorded_at
+                FROM collection_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "run_id": row["id"],
+                "trigger": row["trigger"],
+                "repository_count": row["repository_count"],
+                "repositories": json.loads(row["repositories_json"]),
+                "recorded_at": row["recorded_at"],
+            }
+            for row in rows
+        ]
 
     def check_connection(self) -> None:
         """Raise when the configured SQLite database cannot serve queries."""

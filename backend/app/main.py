@@ -497,7 +497,7 @@ async def github_webhook(
     }
     try:
         result, replayed = store.save_many_once(
-            [snapshot], idempotency_key, fingerprint, result
+            [snapshot], idempotency_key, fingerprint, result, trigger="webhook"
         )
     except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -561,11 +561,11 @@ def collect_github_repository_snapshot(
 
     result = snapshot.to_dict()
     if idempotency_key is None:
-        store.save(snapshot)
+        store.save(snapshot, trigger="api")
         return JSONResponse(status_code=201, content=result)
     try:
         result, replayed = store.save_many_once(
-            [snapshot], idempotency_key, fingerprint, result
+            [snapshot], idempotency_key, fingerprint, result, trigger="api"
         )
     except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -618,11 +618,11 @@ def collect_github_repository_snapshots(
         "repositories": [snapshot.to_dict() for snapshot in snapshots],
     }
     if idempotency_key is None:
-        store.save_many(snapshots)
+        store.save_many(snapshots, trigger="batch")
         return JSONResponse(status_code=201, content=result)
     try:
         result, replayed = store.save_many_once(
-            snapshots, idempotency_key, fingerprint, result
+            snapshots, idempotency_key, fingerprint, result, trigger="batch"
         )
     except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -631,6 +631,15 @@ def collect_github_repository_snapshots(
         content=result,
         headers={"Idempotency-Replayed": str(replayed).lower()},
     )
+
+
+@app.get("/github/snapshots/collections")
+def github_snapshot_collection_runs(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=50, ge=1, le=1000),
+) -> list[dict]:
+    """List successful snapshot collection runs for operational auditing."""
+    return store.collection_runs(limit)
 
 
 @app.get("/github/{owner}/{repository}/snapshots")

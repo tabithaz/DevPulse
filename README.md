@@ -27,6 +27,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Atomic batch collection for up to 25 repositories per request
 - Durable idempotency keys for retry-safe snapshot collection
 - Signed GitHub webhooks for automatic, retry-safe snapshot collection
+- Durable, bounded audit history for API, batch, and webhook collection runs
 
 ## Stack
 
@@ -135,6 +136,7 @@ Example response:
 | `POST` | `/github/webhooks` | Verify GitHub events and collect repository snapshots automatically |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `POST` | `/github/snapshots/collect` | Collect and atomically persist up to 25 repository snapshots |
+| `GET` | `/github/snapshots/collections?limit=50` | Audit recent successful collection runs and their triggers |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
 | `GET` | `/github/{owner}/{repository}/snapshots/page?limit=50` | Traverse history with stable keyset pagination |
 | `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |

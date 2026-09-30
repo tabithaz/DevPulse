@@ -70,6 +70,48 @@ def test_snapshot_store_batch_is_atomic(tmp_path: Path) -> None:
         store.save_many([duplicate, duplicate])
 
     assert store.history("octocat/hello-world") == []
+    assert store.collection_runs() == []
+
+
+def test_collection_runs_are_bounded_and_newest_first(tmp_path: Path) -> None:
+    store = SnapshotStore(
+        tmp_path / "snapshots.db",
+        collection_run_retention=2,
+    )
+    store.save(snapshot("2026-09-21T12:00:00+00:00"), trigger="api")
+    store.save(snapshot(
+        "2026-09-21T13:00:00+00:00",
+        repository="octocat/analytics",
+    ), trigger="webhook")
+    store.save_many([
+        snapshot("2026-09-21T14:00:00+00:00"),
+        snapshot(
+            "2026-09-21T14:00:00+00:00",
+            repository="octocat/analytics",
+        ),
+    ], trigger="batch")
+
+    runs = store.collection_runs()
+
+    assert [run["trigger"] for run in runs] == ["batch", "webhook"]
+    assert runs[0]["repository_count"] == 2
+    assert runs[0]["repositories"] == [
+        "octocat/analytics",
+        "octocat/hello-world",
+    ]
+    assert runs[0]["recorded_at"]
+
+
+def test_collection_run_configuration_and_trigger_are_validated(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="collection_run_retention"):
+        SnapshotStore(tmp_path / "snapshots.db", collection_run_retention=0)
+
+    store = SnapshotStore(tmp_path / "valid.db")
+    with pytest.raises(ValueError, match="trigger"):
+        store.save(snapshot("2026-09-21T12:00:00+00:00"), trigger="cron")
+
+    assert store.history("octocat/hello-world") == []
+    assert store.collection_runs() == []
 
 
 def test_snapshot_retention_prunes_each_repository_independently(tmp_path: Path) -> None:
@@ -207,6 +249,7 @@ def test_single_collection_idempotency_survives_store_restart(tmp_path: Path) ->
     assert replay.headers["idempotency-replayed"] == "true"
     assert github.calls == 1
     assert len(store.history("octocat/hello-world")) == 1
+    assert [run["trigger"] for run in store.collection_runs()] == ["api"]
 
 
 def test_collection_rejects_conflicting_and_malformed_idempotency_keys(
@@ -284,6 +327,7 @@ def test_batch_collection_persists_all_repositories(tmp_path: Path) -> None:
                 {"owner": "octocat", "repository": "analytics"},
             ]
         })
+        audit = client.get("/github/snapshots/collections")
     finally:
         app.dependency_overrides.clear()
 
@@ -291,6 +335,13 @@ def test_batch_collection_persists_all_repositories(tmp_path: Path) -> None:
     assert response.json()["collected"] == 2
     assert len(store.history("octocat/hello-world")) == 1
     assert len(store.history("octocat/analytics")) == 1
+    assert audit.status_code == 200
+    assert audit.json()[0]["trigger"] == "batch"
+    assert audit.json()[0]["repository_count"] == 2
+    assert audit.json()[0]["repositories"] == [
+        "octocat/analytics",
+        "octocat/hello-world",
+    ]
 
 
 def test_batch_collection_rejects_duplicates_and_is_atomic_on_upstream_failure(

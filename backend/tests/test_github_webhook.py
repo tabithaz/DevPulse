@@ -83,6 +83,7 @@ def test_signed_push_collects_snapshot_and_replays_delivery(webhook_dependencies
     assert replay.headers["idempotency-replayed"] == "true"
     assert github.calls == 1
     assert len(store.history("tabithaz/DevPulse")) == 1
+    assert [run["trigger"] for run in store.collection_runs()] == ["webhook"]
 
 
 def test_invalid_signature_cannot_collect(webhook_dependencies) -> None:
