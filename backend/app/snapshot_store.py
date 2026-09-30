@@ -224,15 +224,25 @@ class SnapshotStore:
             connection.execute("SELECT 1").fetchone()
 
     def history(self, repository: str, limit: int = 30) -> list[RepositorySnapshot]:
+        return self.history_before(repository, limit=limit)
+
+    def history_before(
+        self,
+        repository: str,
+        limit: int = 30,
+        before: str | None = None,
+    ) -> list[RepositorySnapshot]:
+        """Return newest snapshots strictly before an optional keyset boundary."""
         with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT * FROM repository_snapshots
                 WHERE repository = ?
+                  AND (? IS NULL OR collected_at < ?)
                 ORDER BY collected_at DESC
                 LIMIT ?
                 """,
-                (repository, limit),
+                (repository, before, before, limit),
             ).fetchall()
         return [
             RepositorySnapshot(

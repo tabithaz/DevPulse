@@ -345,6 +345,65 @@ def test_snapshot_history_validates_limit(tmp_path: Path) -> None:
     assert response.status_code == 422
 
 
+def test_snapshot_history_page_uses_stable_keyset_cursor(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    for hour, stars in ((12, 1), (13, 2), (14, 3), (15, 4), (16, 5)):
+        store.save(snapshot(f"2026-09-21T{hour}:00:00+00:00", stars=stars))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        first = client.get("/github/octocat/hello-world/snapshots/page?limit=2")
+        store.save(snapshot("2026-09-21T17:00:00+00:00", stars=6))
+        second = client.get(
+            "/github/octocat/hello-world/snapshots/page",
+            params={"limit": 2, "cursor": first.json()["next_cursor"]},
+        )
+        third = client.get(
+            "/github/octocat/hello-world/snapshots/page",
+            params={"limit": 2, "cursor": second.json()["next_cursor"]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [item["stars"] for item in first.json()["items"]] == [5, 4]
+    assert first.json()["page_size"] == 2
+    assert first.json()["has_more"] is True
+    assert [item["stars"] for item in second.json()["items"]] == [3, 2]
+    assert second.json()["has_more"] is True
+    assert [item["stars"] for item in third.json()["items"]] == [1]
+    assert third.json()["page_size"] == 1
+    assert third.json()["has_more"] is False
+    assert third.json()["next_cursor"] is None
+
+
+def test_snapshot_history_page_rejects_invalid_and_cross_repository_cursors(
+    tmp_path: Path,
+) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.db")
+    store.save(snapshot("2026-09-21T12:00:00+00:00"))
+    store.save(snapshot("2026-09-21T13:00:00+00:00"))
+    app.dependency_overrides[snapshot_store_dependency] = lambda: store
+    try:
+        valid = client.get("/github/octocat/hello-world/snapshots/page?limit=1")
+        invalid = client.get(
+            "/github/octocat/hello-world/snapshots/page",
+            params={"cursor": "not-a-valid-cursor"},
+        )
+        cross_repository = client.get(
+            "/github/octocat/another-repo/snapshots/page",
+            params={"cursor": valid.json()["next_cursor"]},
+        )
+        invalid_limit = client.get(
+            "/github/octocat/hello-world/snapshots/page?limit=101"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "invalid snapshot cursor for repository"
+    assert cross_repository.status_code == 422
+    assert invalid_limit.status_code == 422
+
+
 def test_snapshot_export_is_bounded_ordered_and_spreadsheet_safe(tmp_path: Path) -> None:
     store = SnapshotStore(tmp_path / "snapshots.db")
     store.save(snapshot("2026-09-21T12:00:00+00:00", stars=10))

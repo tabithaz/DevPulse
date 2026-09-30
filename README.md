@@ -18,6 +18,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Browser dashboard for portfolio totals, growth rankings, alerts, snapshot deltas, and collection
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
+- Stable cursor pagination for long repository snapshot histories
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
 - Repository trend velocity and volatility across bounded snapshot windows
 - Portfolio-wide growth rankings and aggregate repository velocity
@@ -133,6 +134,7 @@ Example response:
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `POST` | `/github/snapshots/collect` | Collect and atomically persist up to 25 repository snapshots |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
+| `GET` | `/github/{owner}/{repository}/snapshots/page?limit=50` | Traverse history with stable keyset pagination |
 | `GET` | `/github/{owner}/{repository}/snapshots/export?limit=365` | Download stored history as CSV |
 | `GET` | `/github/{owner}/{repository}/snapshots/delta` | Compare the two latest stored snapshots |
 | `GET` | `/github/{owner}/{repository}/snapshots/trend?limit=30` | Measure historical growth velocity and volatility |
@@ -160,6 +162,11 @@ Persist the current snapshot and retrieve its history with:
 curl -X POST http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots
 curl "http://127.0.0.1:8000/github/tabithaz/DevPulse/snapshots?limit=10"
 ```
+
+For longer histories, use the `/snapshots/page` endpoint. It returns up to 100
+records plus `has_more` and an opaque `next_cursor`. Pass that cursor unchanged
+to the next request. Cursors are bound to one repository, and newly collected
+snapshots do not shift or duplicate records in an in-progress traversal.
 
 Collect several repositories in one bounded request with
 `POST /github/snapshots/collect`. DevPulse fetches every repository before

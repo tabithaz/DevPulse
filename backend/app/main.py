@@ -1,4 +1,6 @@
 from dataclasses import asdict
+import base64
+import binascii
 import csv
 from datetime import datetime
 import hashlib
@@ -35,7 +37,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.18.0",
+    version="0.19.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -46,6 +48,35 @@ def spreadsheet_safe_text(value: str | None) -> str:
     if value is None:
         return ""
     return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
+
+
+def encode_snapshot_cursor(repository: str, collected_at: str) -> str:
+    payload = json.dumps(
+        {"repository": repository, "collected_at": collected_at},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def decode_snapshot_cursor(cursor: str, repository: str) -> str:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(
+            cursor + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        payload = json.loads(decoded)
+        collected_at = payload["collected_at"]
+        if payload["repository"] != repository or not isinstance(collected_at, str):
+            raise ValueError
+        datetime.fromisoformat(collected_at)
+        return collected_at
+    except (binascii.Error, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="invalid snapshot cursor for repository",
+        ) from error
 
 
 def conditional_json_response(request: Request, payload: dict) -> Response:
@@ -501,6 +532,33 @@ def github_repository_snapshot_history(
 ) -> list[dict]:
     name = f"{owner}/{repository}"
     return [snapshot.to_dict() for snapshot in store.history(name, limit)]
+
+
+@app.get("/github/{owner}/{repository}/snapshots/page")
+def github_repository_snapshot_page(
+    owner: str,
+    repository: str,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=1000),
+) -> dict:
+    """Traverse snapshot history with a stable repository-bound cursor."""
+    name = f"{owner}/{repository}"
+    before = decode_snapshot_cursor(cursor, name) if cursor is not None else None
+    snapshots = store.history_before(name, limit=limit + 1, before=before)
+    has_more = len(snapshots) > limit
+    page = snapshots[:limit]
+    return {
+        "repository": name,
+        "items": [snapshot.to_dict() for snapshot in page],
+        "page_size": len(page),
+        "has_more": has_more,
+        "next_cursor": (
+            encode_snapshot_cursor(name, page[-1].collected_at)
+            if has_more and page
+            else None
+        ),
+    }
 
 
 @app.get("/github/{owner}/{repository}/snapshots/export")
