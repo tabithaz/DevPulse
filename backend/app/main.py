@@ -4,8 +4,10 @@ import binascii
 import csv
 from datetime import datetime
 import hashlib
+import hmac
 from io import StringIO
 import json
+import os
 import sqlite3
 from pathlib import Path
 from statistics import median, pstdev
@@ -41,6 +43,7 @@ app = FastAPI(
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
+MAX_WEBHOOK_BYTES = 256 * 1024
 
 
 def spreadsheet_safe_text(value: str | None) -> str:
@@ -396,6 +399,113 @@ def readiness_check() -> dict[str, str]:
 @app.get("/dashboard", include_in_schema=False)
 def dashboard() -> FileResponse:
     return FileResponse(DASHBOARD_PATH, media_type="text/html")
+
+
+@app.post("/github/webhooks", status_code=202)
+async def github_webhook(
+    request: Request,
+    client: Annotated[GitHubClient, Depends(github_client_dependency)],
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    github_event: Annotated[
+        str,
+        Header(alias="X-GitHub-Event", min_length=1, max_length=100),
+    ],
+    delivery_id: Annotated[
+        str,
+        Header(
+            alias="X-GitHub-Delivery",
+            min_length=1,
+            max_length=100,
+            pattern=r"^[A-Za-z0-9-]+$",
+        ),
+    ],
+    signature: Annotated[
+        str | None,
+        Header(alias="X-Hub-Signature-256", max_length=100),
+    ] = None,
+) -> Response:
+    """Verify a GitHub webhook and collect a retry-safe repository snapshot."""
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=503, detail="GitHub webhook is not configured")
+
+    body = await request.body()
+    if len(body) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="GitHub webhook payload is too large")
+    expected = "sha256=" + hmac.new(
+        secret.encode("utf-8"),
+        body,
+        hashlib.sha256,
+    ).hexdigest()
+    if signature is None or not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=401, detail="invalid GitHub webhook signature")
+
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid GitHub webhook payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid GitHub webhook payload")
+
+    if github_event == "ping":
+        return JSONResponse(status_code=202, content={"status": "pong"})
+    if github_event not in {"push", "repository"}:
+        return JSONResponse(
+            status_code=202,
+            content={"status": "ignored", "event": github_event},
+        )
+
+    full_name = payload.get("repository", {}).get("full_name")
+    if not isinstance(full_name, str) or full_name.count("/") != 1:
+        raise HTTPException(status_code=422, detail="webhook repository is invalid")
+    owner, repository = full_name.split("/", 1)
+    try:
+        target = RepositoryTarget(owner=owner, repository=repository)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="webhook repository is invalid") from exc
+
+    idempotency_key = f"webhook:{delivery_id}"
+    fingerprint = hashlib.sha256(body).hexdigest()
+    try:
+        replay = store.idempotency_result(idempotency_key, fingerprint)
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if replay is not None:
+        return JSONResponse(
+            status_code=202,
+            content=replay,
+            headers={"Idempotency-Replayed": "true"},
+        )
+
+    try:
+        snapshot = client.repository_snapshot(target.owner, target.repository)
+    except GitHubNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubRateLimitError as exc:
+        detail = "GitHub API rate limit exceeded"
+        if exc.reset_at:
+            detail += f"; resets at Unix timestamp {exc.reset_at}"
+        raise HTTPException(status_code=429, detail=detail) from exc
+    except GitHubServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    result = {
+        "status": "collected",
+        "event": github_event,
+        "delivery_id": delivery_id,
+        "repository": snapshot.to_dict(),
+    }
+    try:
+        result, replayed = store.save_many_once(
+            [snapshot], idempotency_key, fingerprint, result
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(
+        status_code=202,
+        content=result,
+        headers={"Idempotency-Replayed": str(replayed).lower()},
+    )
 
 
 @app.get("/github/{owner}/{repository}/snapshot")

@@ -26,6 +26,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Spreadsheet-safe portfolio reports combining state, deltas, and growth velocity
 - Atomic batch collection for up to 25 repositories per request
 - Durable idempotency keys for retry-safe snapshot collection
+- Signed GitHub webhooks for automatic, retry-safe snapshot collection
 
 ## Stack
 
@@ -131,6 +132,7 @@ Example response:
 | `GET` | `/ready` | Readiness check with SQLite connectivity verification |
 | `GET` | `/dashboard` | Interactive repository snapshot dashboard |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
+| `POST` | `/github/webhooks` | Verify GitHub events and collect repository snapshots automatically |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |
 | `POST` | `/github/snapshots/collect` | Collect and atomically persist up to 25 repository snapshots |
 | `GET` | `/github/{owner}/{repository}/snapshots?limit=30` | Read recent snapshot history |
@@ -183,6 +185,14 @@ same request with the same key returns the original `201` response with
 snapshot. Reusing a key for a different repository request returns HTTP 409.
 The newest 1,000 completed keys are retained in SQLite so retry safety survives
 service restarts while storage remains bounded.
+
+For event-driven collection, set `GITHUB_WEBHOOK_SECRET` and configure a GitHub
+repository webhook to send `push` and `repository` events to
+`POST /github/webhooks`. DevPulse verifies the `X-Hub-Signature-256` HMAC before
+processing the payload, then uses `X-GitHub-Delivery` as a durable idempotency
+key. Retried deliveries return the original response without another GitHub API
+call or database write. Unsupported authenticated events are acknowledged and
+ignored.
 
 After collecting at least two snapshots, call
 `GET /github/tabithaz/DevPulse/snapshots/delta` to see changes in stars,
