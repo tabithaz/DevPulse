@@ -22,6 +22,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Portfolio-wide snapshot deltas for measuring repository growth in one request
 - Repository trend velocity and volatility across bounded snapshot windows
 - Portfolio-wide growth rankings and aggregate repository velocity
+- Portfolio freshness monitoring against configurable collection SLAs
 - Cached portfolio alerts for high-impact repository changes
 - Spreadsheet-safe portfolio reports combining state, deltas, and growth velocity
 - Atomic batch collection for up to 25 repositories per request
@@ -151,6 +152,7 @@ Example response:
 | `GET` | `/github/{owner}/{repository}/snapshots/trend?limit=30` | Measure historical growth velocity and volatility |
 | `GET` | `/github/snapshots/summary` | Summarize the latest state of every tracked repository |
 | `GET` | `/github/snapshots/delta` | Aggregate changes across each repository's latest two snapshots |
+| `GET` | `/github/snapshots/freshness?max_age_hours=24` | Find repositories with stale collection data |
 | `GET` | `/github/snapshots/trends?limit=30` | Rank portfolio growth across stored snapshot windows |
 | `GET` | `/github/snapshots/alerts` | Identify actionable changes across tracked repositories |
 | `GET` | `/github/snapshots/report.csv?trend_limit=30` | Export portfolio state, deltas, and growth velocity as CSV |
@@ -232,6 +234,12 @@ newest snapshots in one database query. The response aggregates changes in
 stars, forks, and open issues, counts repositories gaining or losing stars,
 and identifies repositories that need another collection before comparison.
 It also supports ETag revalidation for efficient portfolio polling.
+
+Use `GET /github/snapshots/freshness?max_age_hours=24` to enforce a collection
+freshness SLA across the portfolio. The response separates fresh and stale
+repositories, reports the newest and oldest snapshot ages, ranks the stalest
+repositories first, and identifies when the next currently fresh repository
+will become stale. It reads only stored data and does not consume GitHub API quota.
 
 Use `GET /github/snapshots/trends?limit=30` to compare longer-term growth
 across the full tracked portfolio. Repositories are ranked by star velocity,

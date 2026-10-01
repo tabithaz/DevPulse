@@ -2,7 +2,7 @@ from dataclasses import asdict
 import base64
 import binascii
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 from io import StringIO
@@ -204,6 +204,60 @@ def repository_trend(snapshots: list[RepositorySnapshot], repository: str) -> di
             field: round(pstdev(changes), 3)
             for field, changes in interval_changes.items()
         },
+    }
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def portfolio_snapshot_freshness(
+    snapshots: list[RepositorySnapshot],
+    max_age_hours: float,
+    now: datetime,
+) -> dict:
+    """Classify latest repository snapshots against a collection-age SLA."""
+    threshold = timedelta(hours=max_age_hours)
+    repositories = []
+    for snapshot in snapshots:
+        collected_at = datetime.fromisoformat(snapshot.collected_at)
+        if collected_at.tzinfo is None or collected_at.utcoffset() is None:
+            collected_at = collected_at.replace(tzinfo=timezone.utc)
+        else:
+            collected_at = collected_at.astimezone(timezone.utc)
+        age_hours = max(0.0, (now - collected_at).total_seconds() / 3600.0)
+        stale = age_hours > max_age_hours
+        repositories.append({
+            "repository": snapshot.repository,
+            "status": "stale" if stale else "fresh",
+            "collected_at": snapshot.collected_at,
+            "age_hours": round(age_hours, 3),
+            "stale_by_hours": round(max(0.0, age_hours - max_age_hours), 3),
+            "becomes_stale_at": (collected_at + threshold).isoformat(),
+        })
+
+    repositories.sort(key=lambda item: (
+        item["status"] != "stale",
+        -item["age_hours"],
+        item["repository"].casefold(),
+    ))
+    stale_count = sum(item["status"] == "stale" for item in repositories)
+    fresh = [item for item in repositories if item["status"] == "fresh"]
+    ages = [item["age_hours"] for item in repositories]
+    return {
+        "status": "no_data" if not repositories else ("stale" if stale_count else "fresh"),
+        "evaluated_at": now.isoformat(),
+        "max_age_hours": max_age_hours,
+        "repositories_tracked": len(repositories),
+        "fresh_repositories": len(repositories) - stale_count,
+        "stale_repositories": stale_count,
+        "freshest_snapshot_age_hours": min(ages) if ages else None,
+        "stalest_snapshot_age_hours": max(ages) if ages else None,
+        "next_stale_at": min(
+            (item["becomes_stale_at"] for item in fresh),
+            default=None,
+        ),
+        "repositories": repositories,
     }
 
 
@@ -842,6 +896,19 @@ def github_snapshot_portfolio_delta(
         "repositories": repositories,
     }
     return conditional_json_response(request, payload)
+
+
+@app.get("/github/snapshots/freshness")
+def github_snapshot_portfolio_freshness(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    max_age_hours: float = Query(default=24.0, gt=0, le=8760),
+) -> dict:
+    """Report whether each repository's latest snapshot meets a freshness SLA."""
+    return portfolio_snapshot_freshness(
+        store.latest(),
+        max_age_hours=max_age_hours,
+        now=utc_now(),
+    )
 
 
 @app.get("/github/snapshots/trends")
