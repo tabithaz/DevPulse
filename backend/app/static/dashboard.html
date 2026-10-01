@@ -59,7 +59,7 @@
 </head>
 <body>
 <main>
-  <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><span class="badge">API connected</span></header>
+  <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><button class="secondary" id="refresh-portfolio" type="button">Refresh portfolio</button></header>
   <section class="cards portfolio" aria-label="Portfolio snapshot summary">
     <article class="panel card"><div class="label">Repositories</div><div class="value" id="portfolio-repositories">0</div></article>
     <article class="panel card"><div class="label">Active</div><div class="value" id="portfolio-active">0</div></article>
@@ -75,6 +75,11 @@
       <div class="insight-heading"><h2>Repository alerts</h2><span class="count" id="alert-count">0 active</span></div>
       <div class="insight-list" id="portfolio-alerts"><div class="insight-empty">No actionable changes detected.</div></div>
     </article>
+  </section>
+  <section class="panel insight portfolio" aria-label="Snapshot freshness">
+    <div class="insight-heading"><h2>Snapshot freshness</h2><span class="count" id="freshness-count" role="status">Loading…</span></div>
+    <p id="freshness-summary">Checking the 24-hour collection SLA.</p>
+    <div class="insight-list" id="snapshot-freshness"></div>
   </section>
   <section class="panel">
     <form id="repository-form">
@@ -151,7 +156,39 @@
     else { const note = document.createElement('div'); note.className = 'insight-empty'; note.textContent = 'No actionable changes detected.'; list.replaceChildren(note); }
   }
 
+  function renderFreshness(payload) {
+    document.querySelector('#freshness-count').textContent = `${payload.stale_repositories} stale / ${payload.repositories_tracked} tracked`;
+    const summary = document.querySelector('#freshness-summary');
+    if (payload.status === 'no_data') summary.textContent = 'Collect a repository snapshot to start freshness monitoring.';
+    else if (payload.status === 'stale') summary.textContent = `${payload.stale_repositories} repositories need collection. Target: every ${payload.max_age_hours} hours.`;
+    else summary.textContent = `All snapshots meet the ${payload.max_age_hours}-hour collection SLA.`;
+    const rows = payload.repositories.slice(0, 5).map(item => {
+      const row = document.createElement('div'); row.className = 'insight-row';
+      const details = document.createElement('div');
+      const name = document.createElement('div'); name.className = 'insight-name'; name.textContent = item.repository;
+      const age = document.createElement('div'); age.className = 'alert-detail';
+      age.textContent = item.status === 'stale' ? `${item.stale_by_hours.toFixed(1)} hours overdue` : `Collected ${item.age_hours.toFixed(1)} hours ago`;
+      details.append(name, age);
+      const status = document.createElement('span'); status.className = `severity ${item.status === 'stale' ? 'warning' : 'info'}`; status.textContent = item.status;
+      row.append(details, status); return row;
+    });
+    document.querySelector('#snapshot-freshness').replaceChildren(...rows);
+  }
+
+  async function loadFreshness() {
+    try {
+      const response = await fetch('/github/snapshots/freshness');
+      if (!response.ok) throw new Error('Freshness request failed');
+      renderFreshness(await response.json());
+    } catch (_) {
+      document.querySelector('#freshness-count').textContent = 'Unavailable';
+      document.querySelector('#freshness-summary').textContent = 'Could not check snapshot freshness. Refresh to retry.';
+      document.querySelector('#snapshot-freshness').replaceChildren();
+    }
+  }
+
   async function loadPortfolio() {
+    const freshnessRequest = loadFreshness();
     try {
       const [summaryResponse, trendsResponse, alertsResponse] = await Promise.all([
         fetch('/github/snapshots/summary'),
@@ -167,6 +204,7 @@
       if (trendsResponse.ok) renderGrowthLeaders(await trendsResponse.json());
       if (alertsResponse.ok) renderAlerts(await alertsResponse.json());
     } catch (_) { /* Repository workflow remains available if the summary is unavailable. */ }
+    await freshnessRequest;
   }
 
   function sparkline(values) {
@@ -222,6 +260,10 @@
 
   form.addEventListener('submit', event => { event.preventDefault(); request('GET'); });
   collectButton.addEventListener('click', () => { if (form.reportValidity()) request('POST'); });
+  document.querySelector('#refresh-portfolio').addEventListener('click', async event => {
+    const button = event.currentTarget; button.disabled = true;
+    try { await loadPortfolio(); } finally { button.disabled = false; }
+  });
   loadPortfolio();
 </script>
 </body>
