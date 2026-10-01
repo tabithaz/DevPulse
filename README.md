@@ -28,6 +28,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Durable idempotency keys for retry-safe snapshot collection
 - Signed GitHub webhooks for automatic, retry-safe snapshot collection
 - Durable, bounded audit history for API, batch, and webhook collection runs
+- Optional constant-time API-key protection for manual snapshot collection
 
 ## Stack
 
@@ -55,6 +56,12 @@ The dashboard loads portfolio-wide totals from stored snapshots and shows the
 fastest-growing repositories and highest-priority portfolio alerts. It also
 shows the change in stars, forks, and open issues between the selected
 repository's two latest collections.
+
+Set `DEVPULSE_API_KEY` to protect the manual single-repository and batch
+collection endpoints. Clients then send the secret in `X-API-Key`. Comparison
+uses constant-time verification, rejected requests cannot call GitHub or mutate
+snapshot history, and signed webhooks plus read-only analytics remain available.
+The dashboard can send the optional key for collection without storing it.
 
 ## Run with Docker
 

@@ -15,7 +15,7 @@
     p { margin:.3rem 0; color:var(--muted); }
     .badge { color:var(--green); border:1px solid #235946; border-radius:999px; padding:6px 11px; background:#0c2b22; }
     .panel { background:color-mix(in srgb,var(--panel) 92%,transparent); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 50px #0005; }
-    form { display:grid; grid-template-columns:1fr 1fr auto auto; gap:10px; padding:18px; }
+    form { display:grid; grid-template-columns:1fr 1fr 1fr auto auto; gap:10px; padding:18px; }
     input,button { border:1px solid var(--line); border-radius:10px; padding:11px 13px; font:inherit; }
     input { color:var(--text); background:#0a1424; min-width:0; }
     button { color:#07101d; background:var(--accent); font-weight:750; cursor:pointer; }
@@ -80,6 +80,7 @@
     <form id="repository-form">
       <input id="owner" aria-label="GitHub owner" placeholder="Owner" value="tabithaz" required pattern="[A-Za-z0-9_.-]+">
       <input id="repository" aria-label="GitHub repository" placeholder="Repository" value="DevPulse" required pattern="[A-Za-z0-9_.-]+">
+      <input id="api-key" type="password" aria-label="API key" placeholder="API key (optional)" autocomplete="off">
       <button type="submit">Load history</button>
       <button type="button" class="secondary" id="collect">Collect now</button>
     </form>
@@ -204,7 +205,10 @@
     message.className = ''; message.textContent = method === 'POST' ? 'Collecting current GitHub data…' : 'Loading snapshot history…';
     form.querySelectorAll('button').forEach(button => button.disabled = true);
     try {
-      const response = await fetch(route() + (method === 'GET' ? '?limit=30' : ''), { method });
+      const apiKey = document.querySelector('#api-key').value;
+      const options = { method, headers: {} };
+      if (method === 'POST' && apiKey) options.headers['X-API-Key'] = apiKey;
+      const response = await fetch(route() + (method === 'GET' ? '?limit=30' : ''), options);
       if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || `Request failed (${response.status})`); }
       if (method === 'POST') { await loadPortfolio(); return request('GET'); }
       const history = await response.json();

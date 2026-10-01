@@ -8,6 +8,7 @@ import hmac
 from io import StringIO
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from statistics import median, pstdev
@@ -44,6 +45,26 @@ app = FastAPI(
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024
+MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
+
+
+@app.middleware("http")
+async def protect_manual_collection(request: Request, call_next):
+    """Require an API key for manual snapshot writes when configured."""
+    expected_key = os.getenv("DEVPULSE_API_KEY", "")
+    is_manual_collection = request.method == "POST" and (
+        request.url.path == "/github/snapshots/collect"
+        or MANUAL_COLLECTION_PATH.fullmatch(request.url.path) is not None
+    )
+    if expected_key and is_manual_collection:
+        supplied_key = request.headers.get("X-API-Key", "")
+        if not supplied_key or not hmac.compare_digest(supplied_key, expected_key):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "valid X-API-Key required"},
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+    return await call_next(request)
 
 
 def spreadsheet_safe_text(value: str | None) -> str:

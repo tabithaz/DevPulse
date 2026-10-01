@@ -12,6 +12,7 @@ def test_dashboard_is_served() -> None:
     assert response.headers["content-type"].startswith("text/html")
     assert "DevPulse Dashboard" in response.text
     assert 'id="repository-form"' in response.text
+    assert 'id="api-key"' in response.text
 
 
 def test_dashboard_integrates_with_snapshot_api() -> None:
@@ -31,3 +32,4 @@ def test_dashboard_integrates_with_snapshot_api() -> None:
     assert "/github/snapshots/alerts" in response.text
     assert "renderGrowthLeaders" in response.text
     assert "renderAlerts" in response.text
+    assert "options.headers['X-API-Key'] = apiKey" in response.text
