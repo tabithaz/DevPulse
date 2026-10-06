@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.21.0",
+    version="0.22.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -1088,14 +1088,11 @@ def export_github_snapshot_portfolio_report(
     )
 
 
-@app.get("/github/snapshots/alerts")
-def github_snapshot_portfolio_alerts(
-    request: Request,
-    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
-    issue_spike_threshold: int = Query(default=10, ge=1, le=10_000),
-) -> Response:
-    """Identify actionable changes across the latest repository snapshots."""
-    histories = store.latest_history(limit_per_repository=2)
+def portfolio_alerts(
+    histories: dict[str, list[RepositorySnapshot]],
+    issue_spike_threshold: int,
+) -> dict:
+    """Build a deterministic alert summary from recent portfolio history."""
     alerts: list[dict] = []
     insufficient_data = []
 
@@ -1152,7 +1149,7 @@ def github_snapshot_portfolio_alerts(
         alert["repository"].casefold(),
         alert["type"],
     ))
-    payload = {
+    return {
         "repositories_tracked": len(histories),
         "repositories_evaluated": len(histories) - len(insufficient_data),
         "insufficient_data_repositories": insufficient_data,
@@ -1164,7 +1161,74 @@ def github_snapshot_portfolio_alerts(
         },
         "alerts": alerts,
     }
+
+
+@app.get("/github/snapshots/alerts")
+def github_snapshot_portfolio_alerts(
+    request: Request,
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    issue_spike_threshold: int = Query(default=10, ge=1, le=10_000),
+) -> Response:
+    """Identify actionable changes across the latest repository snapshots."""
+    payload = portfolio_alerts(
+        store.latest_history(limit_per_repository=2),
+        issue_spike_threshold,
+    )
     return conditional_json_response(request, payload)
+
+
+@app.get("/github/snapshots/gate")
+def github_snapshot_portfolio_gate(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    max_age_hours: float = Query(default=24.0, gt=0, le=8760),
+    max_stale_repositories: int = Query(default=0, ge=0, le=10_000),
+    max_critical_alerts: int = Query(default=0, ge=0, le=10_000),
+    max_warning_alerts: int = Query(default=0, ge=0, le=10_000),
+    issue_spike_threshold: int = Query(default=10, ge=1, le=10_000),
+) -> dict:
+    """Evaluate stored portfolio state against a deployment safety policy."""
+    latest = store.latest()
+    freshness = portfolio_snapshot_freshness(latest, max_age_hours, utc_now())
+    alerts = portfolio_alerts(
+        store.latest_history(limit_per_repository=2),
+        issue_spike_threshold,
+    )
+    checks = {
+        "data_available": len(latest) > 0,
+        "freshness_budget_met": (
+            freshness["stale_repositories"] <= max_stale_repositories
+        ),
+        "critical_alert_budget_met": (
+            alerts["severity_counts"]["critical"] <= max_critical_alerts
+        ),
+        "warning_alert_budget_met": (
+            alerts["severity_counts"]["warning"] <= max_warning_alerts
+        ),
+    }
+    return {
+        "status": "pass" if all(checks.values()) else "fail",
+        "evaluated_at": freshness["evaluated_at"],
+        "checks": checks,
+        "policy": {
+            "max_age_hours": max_age_hours,
+            "max_stale_repositories": max_stale_repositories,
+            "max_critical_alerts": max_critical_alerts,
+            "max_warning_alerts": max_warning_alerts,
+            "issue_spike_threshold": issue_spike_threshold,
+        },
+        "observed": {
+            "repositories_tracked": len(latest),
+            "stale_repositories": freshness["stale_repositories"],
+            "critical_alerts": alerts["severity_counts"]["critical"],
+            "warning_alerts": alerts["severity_counts"]["warning"],
+            "insufficient_data_repositories": len(
+                alerts["insufficient_data_repositories"]
+            ),
+        },
+        "failing_checks": [
+            name for name, passed in checks.items() if not passed
+        ],
+    }
 
 
 @app.post("/delivery/lead-time")

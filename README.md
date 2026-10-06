@@ -24,6 +24,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Repository trend velocity and volatility across bounded snapshot windows
 - Portfolio-wide growth rankings and aggregate repository velocity
 - Portfolio freshness monitoring against configurable collection SLAs
+- CI-ready portfolio release gates for freshness and alert budgets
 - Cached portfolio alerts for high-impact repository changes
 - Spreadsheet-safe portfolio reports combining state, deltas, and growth velocity
 - Atomic batch collection for up to 25 repositories per request
@@ -162,6 +163,7 @@ Example response:
 | `GET` | `/github/snapshots/freshness?max_age_hours=24` | Find repositories with stale collection data |
 | `GET` | `/github/snapshots/trends?limit=30` | Rank portfolio growth across stored snapshot windows |
 | `GET` | `/github/snapshots/alerts` | Identify actionable changes across tracked repositories |
+| `GET` | `/github/snapshots/gate` | Evaluate portfolio freshness and alert budgets for deployment safety |
 | `GET` | `/github/snapshots/report.csv?trend_limit=30` | Export portfolio state, deltas, and growth velocity as CSV |
 | `POST` | `/activity/summary` | Aggregate repository activity |
 | `POST` | `/activity/rankings?limit=10` | Rank repositories by total activity |
