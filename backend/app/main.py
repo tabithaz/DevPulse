@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.20.0",
+    version="0.21.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -209,6 +209,11 @@ def repository_trend(snapshots: list[RepositorySnapshot], repository: str) -> di
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def prometheus_label(value: str) -> str:
+    """Escape a value for use inside a Prometheus label string."""
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def portfolio_snapshot_freshness(
@@ -474,6 +479,54 @@ def readiness_check() -> dict[str, str]:
 @app.get("/dashboard", include_in_schema=False)
 def dashboard() -> FileResponse:
     return FileResponse(DASHBOARD_PATH, media_type="text/html")
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics(
+    store: Annotated[SnapshotStore, Depends(snapshot_store_dependency)],
+    max_age_hours: float = Query(default=24.0, gt=0, le=8760),
+) -> Response:
+    """Expose portfolio state and snapshot freshness for Prometheus scrapers."""
+    snapshots = store.latest()
+    freshness = portfolio_snapshot_freshness(snapshots, max_age_hours, utc_now())
+    lines = [
+        "# HELP devpulse_repositories_tracked Number of repositories in the portfolio.",
+        "# TYPE devpulse_repositories_tracked gauge",
+        f"devpulse_repositories_tracked {len(snapshots)}",
+        "# HELP devpulse_repositories_archived Number of archived repositories.",
+        "# TYPE devpulse_repositories_archived gauge",
+        f"devpulse_repositories_archived {sum(item.archived for item in snapshots)}",
+        "# HELP devpulse_stars_total Stars across the latest repository snapshots.",
+        "# TYPE devpulse_stars_total gauge",
+        f"devpulse_stars_total {sum(item.stars for item in snapshots)}",
+        "# HELP devpulse_forks_total Forks across the latest repository snapshots.",
+        "# TYPE devpulse_forks_total gauge",
+        f"devpulse_forks_total {sum(item.forks for item in snapshots)}",
+        "# HELP devpulse_open_issues_total Open issues across the latest repository snapshots.",
+        "# TYPE devpulse_open_issues_total gauge",
+        f"devpulse_open_issues_total {sum(item.open_issues for item in snapshots)}",
+        "# HELP devpulse_snapshots_stale Number of repositories outside the snapshot freshness SLA.",
+        "# TYPE devpulse_snapshots_stale gauge",
+        f"devpulse_snapshots_stale {freshness['stale_repositories']}",
+        "# HELP devpulse_snapshot_age_seconds Age of the latest repository snapshot.",
+        "# TYPE devpulse_snapshot_age_seconds gauge",
+        "# HELP devpulse_snapshot_stale Whether a repository is outside the freshness SLA.",
+        "# TYPE devpulse_snapshot_stale gauge",
+    ]
+    for item in freshness["repositories"]:
+        label = prometheus_label(item["repository"])
+        lines.append(
+            f'devpulse_snapshot_age_seconds{{repository="{label}"}} '
+            f'{item["age_hours"] * 3600:g}'
+        )
+        lines.append(
+            f'devpulse_snapshot_stale{{repository="{label}"}} '
+            f'{int(item["status"] == "stale")}'
+        )
+    return Response(
+        content="\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 @app.post("/github/webhooks", status_code=202)
