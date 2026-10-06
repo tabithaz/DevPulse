@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.19.0",
+    version="0.20.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -598,6 +598,17 @@ def github_repository_snapshot(
         if exc.reset_at:
             detail += f"; resets at Unix timestamp {exc.reset_at}"
         raise HTTPException(status_code=429, detail=detail) from exc
+    except GitHubServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/github/rate-limit")
+def github_rate_limit(
+    client: Annotated[GitHubClient, Depends(github_client_dependency)],
+) -> dict:
+    """Expose collection capacity without revealing GitHub credentials."""
+    try:
+        return client.rate_limit().to_dict()
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

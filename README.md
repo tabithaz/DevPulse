@@ -15,7 +15,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Contributor metrics including ownership concentration, workload, reviewer load, and contribution streaks
 - Trend, volatility, forecasting, inactivity-gap, branch-staleness, and release-stability analysis
 - Automated pytest coverage and GitHub Actions validation
-- Browser dashboard for portfolio totals, growth rankings, alerts, snapshot freshness, deltas, and collection
+- Browser dashboard for portfolio totals, growth rankings, alerts, snapshot freshness, GitHub quota, deltas, and collection
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -57,7 +57,8 @@ The dashboard loads portfolio-wide totals from stored snapshots and shows the
 fastest-growing repositories and highest-priority portfolio alerts. A freshness
 panel highlights repositories overdue for the 24-hour collection SLA and shows
 snapshot ages. Use Refresh portfolio to recheck the panels without collecting
-new data. It also
+new data. A live GitHub quota badge reports collection capacity and the reset
+time before a batch is started. It also
 shows the change in stars, forks, and open issues between the selected
 repository's two latest collections.
 
@@ -143,6 +144,7 @@ Example response:
 | `GET` | `/health` | Health check |
 | `GET` | `/ready` | Readiness check with SQLite connectivity verification |
 | `GET` | `/dashboard` | Interactive repository snapshot dashboard |
+| `GET` | `/github/rate-limit` | Inspect live GitHub collection capacity and reset time |
 | `GET` | `/github/{owner}/{repository}/snapshot` | Collect normalized GitHub repository metadata |
 | `POST` | `/github/webhooks` | Verify GitHub events and collect repository snapshots automatically |
 | `POST` | `/github/{owner}/{repository}/snapshots` | Collect and persist a repository snapshot |

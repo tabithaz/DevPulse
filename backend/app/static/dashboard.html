@@ -10,10 +10,13 @@
     body { margin:0; min-height:100vh; font:15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; color:var(--text); background:radial-gradient(circle at top right,#142b4c 0,var(--bg) 42%); }
     main { width:min(1100px,92vw); margin:0 auto; padding:56px 0 72px; }
     header { display:flex; align-items:end; justify-content:space-between; gap:24px; margin-bottom:28px; }
+    .header-actions { display:flex; align-items:center; gap:10px; }
     h1 { margin:0; font-size:clamp(2rem,5vw,3.3rem); letter-spacing:-.045em; }
     h2 { margin:0 0 14px; font-size:1rem; }
     p { margin:.3rem 0; color:var(--muted); }
     .badge { color:var(--green); border:1px solid #235946; border-radius:999px; padding:6px 11px; background:#0c2b22; }
+    .badge.low { color:#fde68a; border-color:#6b4f14; background:#342607; }
+    .badge.exhausted { color:#fecdd3; border-color:#713044; background:#3e1420; }
     .panel { background:color-mix(in srgb,var(--panel) 92%,transparent); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 50px #0005; }
     form { display:grid; grid-template-columns:1fr 1fr 1fr auto auto; gap:10px; padding:18px; }
     input,button { border:1px solid var(--line); border-radius:10px; padding:11px 13px; font:inherit; }
@@ -53,13 +56,13 @@
     .history { display:flex; flex-direction:column; gap:8px; max-height:190px; overflow:auto; }
     .row { display:flex; justify-content:space-between; gap:12px; color:var(--muted); border-bottom:1px solid var(--line); padding:7px 0; }
     .empty { color:var(--muted); padding:36px 0; text-align:center; }
-    @media (max-width:760px) { header{align-items:start;flex-direction:column} form{grid-template-columns:1fr 1fr} .cards{grid-template-columns:1fr 1fr}.trend,.insights{grid-template-columns:1fr} }
+    @media (max-width:760px) { header{align-items:start;flex-direction:column}.header-actions{flex-wrap:wrap} form{grid-template-columns:1fr 1fr} .cards{grid-template-columns:1fr 1fr}.trend,.insights{grid-template-columns:1fr} }
     @media (max-width:480px) { form,.cards{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
 <main>
-  <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><button class="secondary" id="refresh-portfolio" type="button">Refresh portfolio</button></header>
+  <header><div><h1>DevPulse</h1><p>Repository health and delivery signals in one place.</p></div><div class="header-actions"><span class="badge" id="github-quota" role="status">GitHub quota…</span><button class="secondary" id="refresh-portfolio" type="button">Refresh portfolio</button></div></header>
   <section class="cards portfolio" aria-label="Portfolio snapshot summary">
     <article class="panel card"><div class="label">Repositories</div><div class="value" id="portfolio-repositories">0</div></article>
     <article class="panel card"><div class="label">Active</div><div class="value" id="portfolio-active">0</div></article>
@@ -187,8 +190,25 @@
     }
   }
 
+  async function loadGitHubQuota() {
+    const badge = document.querySelector('#github-quota');
+    try {
+      const response = await fetch('/github/rate-limit');
+      if (!response.ok) throw new Error('Quota request failed');
+      const quota = await response.json();
+      badge.className = `badge ${quota.status}`;
+      badge.textContent = `GitHub ${quota.remaining.toLocaleString()} / ${quota.limit.toLocaleString()}`;
+      badge.title = `${quota.remaining_percent}% remaining; resets ${new Date(quota.reset_at).toLocaleString()}`;
+    } catch (_) {
+      badge.className = 'badge low';
+      badge.textContent = 'GitHub quota unavailable';
+      badge.title = 'Refresh to retry the GitHub quota check.';
+    }
+  }
+
   async function loadPortfolio() {
     const freshnessRequest = loadFreshness();
+    const quotaRequest = loadGitHubQuota();
     try {
       const [summaryResponse, trendsResponse, alertsResponse] = await Promise.all([
         fetch('/github/snapshots/summary'),
@@ -204,7 +224,7 @@
       if (trendsResponse.ok) renderGrowthLeaders(await trendsResponse.json());
       if (alertsResponse.ok) renderAlerts(await alertsResponse.json());
     } catch (_) { /* Repository workflow remains available if the summary is unavailable. */ }
-    await freshnessRequest;
+    await Promise.all([freshnessRequest, quotaRequest]);
   }
 
   function sparkline(values) {

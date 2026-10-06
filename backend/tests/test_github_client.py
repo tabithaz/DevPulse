@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -5,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.github_client import (
     GitHubClient,
     GitHubNotFoundError,
+    GitHubRateLimit,
     GitHubRateLimitError,
     GitHubServiceError,
     RepositorySnapshot,
@@ -101,6 +104,58 @@ def test_github_client_classifies_429_without_rate_limit_headers() -> None:
     assert error.value.reset_at is None
 
 
+def test_github_client_reports_core_rate_limit() -> None:
+    reset = int(datetime.now(timezone.utc).timestamp()) + 3600
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "resources": {
+                    "core": {"limit": 5000, "remaining": 4200, "used": 800, "reset": reset}
+                }
+            },
+            request=request,
+        )
+    )
+
+    with GitHubClient(transport=transport) as github:
+        quota = github.rate_limit()
+
+    assert quota.status == "healthy"
+    assert quota.remaining_percent == 84.0
+    assert 3598 <= quota.reset_in_seconds <= 3600
+    assert quota.reset_at.endswith("+00:00")
+
+
+@pytest.mark.parametrize(
+    ("remaining", "status"),
+    [(500, "low"), (0, "exhausted")],
+)
+def test_github_client_classifies_low_rate_limits(remaining: int, status: str) -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "resources": {
+                    "core": {"limit": 5000, "remaining": remaining, "used": 5000 - remaining, "reset": 0}
+                }
+            },
+            request=request,
+        )
+    )
+    with GitHubClient(transport=transport) as github:
+        assert github.rate_limit().status == status
+
+
+def test_github_client_rejects_malformed_rate_limit_payload() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"resources": {}}, request=request)
+    )
+    with GitHubClient(transport=transport) as github:
+        with pytest.raises(GitHubServiceError, match="invalid rate limit payload"):
+            github.rate_limit()
+
+
 class StubGitHubClient:
     def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
         assert (owner, repository) == ("octocat", "hello-world")
@@ -117,6 +172,38 @@ class StubGitHubClient:
             pushed_at="2026-09-21T12:00:00Z",
             collected_at="2026-09-21T14:00:00+00:00",
         )
+
+    def rate_limit(self) -> GitHubRateLimit:
+        return GitHubRateLimit(
+            resource="core",
+            limit=5000,
+            remaining=4200,
+            used=800,
+            remaining_percent=84.0,
+            reset_at="2026-10-06T14:00:00+00:00",
+            reset_in_seconds=3600,
+            status="healthy",
+        )
+
+
+def test_github_rate_limit_endpoint_returns_collection_capacity() -> None:
+    app.dependency_overrides[github_client_dependency] = lambda: StubGitHubClient()
+    try:
+        response = client.get("/github/rate-limit")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "resource": "core",
+        "limit": 5000,
+        "remaining": 4200,
+        "used": 800,
+        "remaining_percent": 84.0,
+        "reset_at": "2026-10-06T14:00:00+00:00",
+        "reset_in_seconds": 3600,
+        "status": "healthy",
+    }
 
 
 def test_github_snapshot_endpoint_returns_normalized_metadata() -> None:
