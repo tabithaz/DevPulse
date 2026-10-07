@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.22.0",
+    version="0.23.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -1185,7 +1185,8 @@ def github_snapshot_portfolio_gate(
     max_critical_alerts: int = Query(default=0, ge=0, le=10_000),
     max_warning_alerts: int = Query(default=0, ge=0, le=10_000),
     issue_spike_threshold: int = Query(default=10, ge=1, le=10_000),
-) -> dict:
+    enforce_http: bool = Query(default=False),
+) -> Response:
     """Evaluate stored portfolio state against a deployment safety policy."""
     latest = store.latest()
     freshness = portfolio_snapshot_freshness(latest, max_age_hours, utc_now())
@@ -1205,7 +1206,7 @@ def github_snapshot_portfolio_gate(
             alerts["severity_counts"]["warning"] <= max_warning_alerts
         ),
     }
-    return {
+    payload = {
         "status": "pass" if all(checks.values()) else "fail",
         "evaluated_at": freshness["evaluated_at"],
         "checks": checks,
@@ -1229,6 +1230,12 @@ def github_snapshot_portfolio_gate(
             name for name, passed in checks.items() if not passed
         ],
     }
+    gate_passed = all(checks.values())
+    return JSONResponse(
+        status_code=200 if gate_passed or not enforce_http else 503,
+        content=payload,
+        headers={"X-DevPulse-Gate": "pass" if gate_passed else "fail"},
+    )
 
 
 @app.post("/delivery/lead-time")

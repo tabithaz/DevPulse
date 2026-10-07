@@ -262,6 +262,14 @@ configurable open-issue spikes from the latest stored snapshots. Alerts are
 sorted by severity, repositories without enough history remain visible, and
 ETag revalidation keeps polling efficient without using GitHub API quota.
 
+The release gate returns its decision in `X-DevPulse-Gate`. Add
+`enforce_http=true` to receive HTTP 503 when the policy fails, allowing standard
+CI tools to block a deployment without custom JSON parsing:
+
+```bash
+curl --fail "http://127.0.0.1:8000/github/snapshots/gate?enforce_http=true"
+```
+
 Download `GET /github/snapshots/report.csv` for a spreadsheet-ready portfolio
 report. Each repository includes its current counts, latest changes, and
 normalized daily growth rates in one row. Text fields are escaped to prevent

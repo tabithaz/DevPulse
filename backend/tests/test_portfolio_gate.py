@@ -55,6 +55,7 @@ def test_portfolio_gate_fails_closed_with_actionable_checks(gate_store) -> None:
     )
 
     assert response.status_code == 200
+    assert response.headers["x-devpulse-gate"] == "fail"
     assert response.json() == {
         "status": "fail",
         "evaluated_at": "2026-10-06T19:00:00+00:00",
@@ -96,6 +97,7 @@ def test_portfolio_gate_passes_with_explicit_budgets(gate_store) -> None:
     )
 
     assert response.status_code == 200
+    assert response.headers["x-devpulse-gate"] == "pass"
     assert response.json()["status"] == "pass"
     assert response.json()["failing_checks"] == []
 
@@ -115,6 +117,41 @@ def test_portfolio_gate_fails_when_no_snapshot_data_exists(
     assert response.status_code == 200
     assert response.json()["status"] == "fail"
     assert response.json()["failing_checks"] == ["data_available"]
+
+
+def test_portfolio_gate_can_fail_with_ci_ready_http_status(gate_store) -> None:
+    response = client.get(
+        "/github/snapshots/gate",
+        params={
+            "max_age_hours": 24,
+            "issue_spike_threshold": 10,
+            "enforce_http": True,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.headers["x-devpulse-gate"] == "fail"
+    assert response.json()["status"] == "fail"
+    assert response.json()["failing_checks"] == [
+        "freshness_budget_met",
+        "critical_alert_budget_met",
+    ]
+
+
+def test_portfolio_gate_enforcement_preserves_success_status(gate_store) -> None:
+    response = client.get(
+        "/github/snapshots/gate",
+        params={
+            "max_age_hours": 24,
+            "max_stale_repositories": 1,
+            "max_critical_alerts": 2,
+            "enforce_http": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-devpulse-gate"] == "pass"
+    assert response.json()["status"] == "pass"
 
 
 @pytest.mark.parametrize(
