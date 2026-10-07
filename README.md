@@ -32,6 +32,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Signed GitHub webhooks for automatic, retry-safe snapshot collection
 - Durable, bounded audit history for API, batch, and webhook collection runs
 - Atomic, integrity-checked SQLite backups with machine-readable manifests
+- Guarded disaster recovery with schema validation and atomic database restores
 - Optional constant-time API-key protection for manual snapshot collection
 
 ## Stack
@@ -109,6 +110,19 @@ The command uses SQLite's online backup API, verifies the completed copy with
 validation succeeds. Its JSON result includes the SHA-256 checksum, file size,
 snapshot count, repository count, and collection-run count for automation and
 restore audits. Existing files are preserved unless `--overwrite` is supplied.
+
+Restore a verified backup while the API is stopped:
+
+```bash
+cd backend
+python -m app.restore --backup ../backups/devpulse.db \
+  --database ../data/devpulse.db --overwrite
+```
+
+The restore command opens the backup read-only, runs an integrity check,
+validates every required table and column, and verifies the copied checksum and
+row-count manifest before atomically replacing the destination. Without
+`--overwrite`, an existing database is never changed.
 
 ## Example request
 

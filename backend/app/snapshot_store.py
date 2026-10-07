@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 from dataclasses import dataclass
 import hashlib
@@ -22,6 +23,123 @@ class BackupResult:
     repositories: int
     collection_runs: int
     integrity_check: str
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    backup: str
+    destination: str
+    size_bytes: int
+    sha256: str
+    repository_snapshots: int
+    repositories: int
+    collection_runs: int
+    integrity_check: str
+
+
+REQUIRED_SCHEMA = {
+    "repository_snapshots": {
+        "repository",
+        "description",
+        "default_branch",
+        "language",
+        "stars",
+        "forks",
+        "open_issues",
+        "archived",
+        "created_at",
+        "pushed_at",
+        "collected_at",
+    },
+    "idempotency_requests": {
+        "idempotency_key",
+        "request_fingerprint",
+        "response_json",
+        "created_at",
+    },
+    "collection_runs": {
+        "id",
+        "trigger",
+        "repository_count",
+        "repositories_json",
+        "recorded_at",
+    },
+}
+
+
+def _database_manifest(path: Path) -> dict:
+    with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise sqlite3.DatabaseError(f"database integrity check failed: {integrity}")
+        for table, required_columns in REQUIRED_SCHEMA.items():
+            columns = {
+                row[1]
+                for row in connection.execute(f'PRAGMA table_info("{table}")')
+            }
+            missing = sorted(required_columns - columns)
+            if missing:
+                raise sqlite3.DatabaseError(
+                    f"backup schema is missing {table} columns: {', '.join(missing)}"
+                )
+        snapshot_count = connection.execute(
+            "SELECT COUNT(*) FROM repository_snapshots"
+        ).fetchone()[0]
+        repository_count = connection.execute(
+            "SELECT COUNT(DISTINCT repository) FROM repository_snapshots"
+        ).fetchone()[0]
+        run_count = connection.execute(
+            "SELECT COUNT(*) FROM collection_runs"
+        ).fetchone()[0]
+    with path.open("rb") as database_file:
+        checksum = hashlib.file_digest(database_file, "sha256").hexdigest()
+    return {
+        "size_bytes": path.stat().st_size,
+        "sha256": checksum,
+        "repository_snapshots": snapshot_count,
+        "repositories": repository_count,
+        "collection_runs": run_count,
+        "integrity_check": integrity,
+    }
+
+
+def restore_database(
+    backup: str | Path,
+    destination: str | Path,
+    overwrite: bool = False,
+) -> RestoreResult:
+    """Validate and atomically restore a DevPulse database backup."""
+    backup_path = Path(backup).expanduser().resolve()
+    destination_path = Path(destination).expanduser().resolve()
+    if not backup_path.is_file():
+        raise FileNotFoundError(f"backup does not exist: {backup_path}")
+    if backup_path == destination_path:
+        raise ValueError("restore destination must differ from the backup")
+    if not destination_path.parent.is_dir():
+        raise FileNotFoundError(
+            f"restore directory does not exist: {destination_path.parent}"
+        )
+    if destination_path.exists() and not overwrite:
+        raise FileExistsError(f"restore destination already exists: {destination_path}")
+
+    source_manifest = _database_manifest(backup_path)
+    temporary_path = destination_path.with_name(
+        f".{destination_path.name}.{uuid4().hex}.restore"
+    )
+    try:
+        shutil.copyfile(backup_path, temporary_path)
+        restored_manifest = _database_manifest(temporary_path)
+        if restored_manifest != source_manifest:
+            raise sqlite3.DatabaseError("restored database does not match backup manifest")
+        os.replace(temporary_path, destination_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+    return RestoreResult(
+        backup=str(backup_path),
+        destination=str(destination_path),
+        **restored_manifest,
+    )
 
 
 class SnapshotStore:
