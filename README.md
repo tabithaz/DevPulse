@@ -31,6 +31,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Durable idempotency keys for retry-safe snapshot collection
 - Signed GitHub webhooks for automatic, retry-safe snapshot collection
 - Durable, bounded audit history for API, batch, and webhook collection runs
+- Atomic, integrity-checked SQLite backups with machine-readable manifests
 - Optional constant-time API-key protection for manual snapshot collection
 
 ## Stack
@@ -94,6 +95,20 @@ Confirm the application and its snapshot database are ready with:
 ```bash
 curl http://127.0.0.1:8000/ready
 ```
+
+Create a consistent online backup without stopping the API:
+
+```bash
+mkdir -p backups
+cd backend
+python -m app.backup --output ../backups/devpulse.db
+```
+
+The command uses SQLite's online backup API, verifies the completed copy with
+`PRAGMA integrity_check`, and atomically moves it into place only after
+validation succeeds. Its JSON result includes the SHA-256 checksum, file size,
+snapshot count, repository count, and collection-run count for automation and
+restore audits. Existing files are preserved unless `--overwrite` is supplied.
 
 ## Example request
 

@@ -1,13 +1,27 @@
 import json
 import os
 import sqlite3
+from dataclasses import dataclass
+import hashlib
 from pathlib import Path
+from uuid import uuid4
 
 from app.github_client import RepositorySnapshot
 
 
 class IdempotencyConflictError(ValueError):
     """Raised when an idempotency key is reused for a different request."""
+
+
+@dataclass(frozen=True)
+class BackupResult:
+    destination: str
+    size_bytes: int
+    sha256: str
+    repository_snapshots: int
+    repositories: int
+    collection_runs: int
+    integrity_check: str
 
 
 class SnapshotStore:
@@ -295,6 +309,60 @@ class SnapshotStore:
         """Raise when the configured SQLite database cannot serve queries."""
         with self._connect() as connection:
             connection.execute("SELECT 1").fetchone()
+
+    def backup(self, destination: str | Path, overwrite: bool = False) -> BackupResult:
+        """Create and verify an atomic online backup of the snapshot database."""
+        if self.database_path == ":memory:":
+            raise ValueError("in-memory databases cannot be backed up by path")
+
+        destination_path = Path(destination).expanduser().resolve()
+        source_path = Path(self.database_path).expanduser().resolve()
+        if destination_path == source_path:
+            raise ValueError("backup destination must differ from the source database")
+        if not destination_path.parent.is_dir():
+            raise FileNotFoundError(
+                f"backup directory does not exist: {destination_path.parent}"
+            )
+        if destination_path.exists() and not overwrite:
+            raise FileExistsError(f"backup already exists: {destination_path}")
+
+        temporary_path = destination_path.with_name(
+            f".{destination_path.name}.{uuid4().hex}.tmp"
+        )
+        try:
+            with self._connect() as source, sqlite3.connect(temporary_path) as target:
+                source.backup(target)
+                integrity = target.execute("PRAGMA integrity_check").fetchone()[0]
+                snapshot_count = target.execute(
+                    "SELECT COUNT(*) FROM repository_snapshots"
+                ).fetchone()[0]
+                repository_count = target.execute(
+                    "SELECT COUNT(DISTINCT repository) FROM repository_snapshots"
+                ).fetchone()[0]
+                run_count = target.execute(
+                    "SELECT COUNT(*) FROM collection_runs"
+                ).fetchone()[0]
+            if integrity != "ok":
+                raise sqlite3.DatabaseError(
+                    f"backup integrity check failed: {integrity}"
+                )
+
+            with temporary_path.open("rb") as backup_file:
+                checksum = hashlib.file_digest(backup_file, "sha256").hexdigest()
+            size_bytes = temporary_path.stat().st_size
+            os.replace(temporary_path, destination_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+        return BackupResult(
+            destination=str(destination_path),
+            size_bytes=size_bytes,
+            sha256=checksum,
+            repository_snapshots=snapshot_count,
+            repositories=repository_count,
+            collection_runs=run_count,
+            integrity_check=integrity,
+        )
 
     def history(self, repository: str, limit: int = 30) -> list[RepositorySnapshot]:
         return self.history_before(repository, limit=limit)
