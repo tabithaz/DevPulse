@@ -37,6 +37,23 @@ class RestoreResult:
     integrity_check: str
 
 
+@dataclass(frozen=True)
+class MaintenanceResult:
+    database: str
+    integrity_check: str
+    wal_busy: int
+    wal_frames: int
+    checkpointed_frames: int
+    wal_bytes_before: int
+    wal_bytes_after: int
+    database_bytes_before: int
+    database_bytes_after: int
+    vacuumed: bool
+    repository_snapshots: int
+    repositories: int
+    collection_runs: int
+
+
 REQUIRED_SCHEMA = {
     "repository_snapshots": {
         "repository",
@@ -139,6 +156,61 @@ def restore_database(
         backup=str(backup_path),
         destination=str(destination_path),
         **restored_manifest,
+    )
+
+
+def maintain_database(
+    database: str | Path,
+    vacuum: bool = False,
+    busy_timeout_ms: int = 5000,
+) -> MaintenanceResult:
+    """Checkpoint WAL data, verify integrity, and optionally compact SQLite."""
+    if busy_timeout_ms <= 0:
+        raise ValueError("busy_timeout_ms must be greater than zero")
+    database_path = Path(database).expanduser().resolve()
+    if not database_path.is_file():
+        raise FileNotFoundError(f"database does not exist: {database_path}")
+
+    wal_path = Path(f"{database_path}-wal")
+    wal_bytes_before = wal_path.stat().st_size if wal_path.exists() else 0
+    database_bytes_before = database_path.stat().st_size
+    with sqlite3.connect(
+        database_path,
+        timeout=busy_timeout_ms / 1000,
+    ) as connection:
+        connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise sqlite3.DatabaseError(
+                f"database integrity check failed: {integrity}"
+            )
+        connection.execute("PRAGMA optimize")
+        if vacuum:
+            connection.execute("VACUUM")
+        wal_busy, wal_frames, checkpointed_frames = connection.execute(
+            "PRAGMA wal_checkpoint(TRUNCATE)"
+        ).fetchone()
+        if wal_busy:
+            raise sqlite3.OperationalError(
+                "database WAL checkpoint could not complete because the database is busy"
+            )
+
+    manifest = _database_manifest(database_path)
+    wal_bytes_after = wal_path.stat().st_size if wal_path.exists() else 0
+    return MaintenanceResult(
+        database=str(database_path),
+        integrity_check=manifest["integrity_check"],
+        wal_busy=wal_busy,
+        wal_frames=wal_frames,
+        checkpointed_frames=checkpointed_frames,
+        wal_bytes_before=wal_bytes_before,
+        wal_bytes_after=wal_bytes_after,
+        database_bytes_before=database_bytes_before,
+        database_bytes_after=database_path.stat().st_size,
+        vacuumed=vacuum,
+        repository_snapshots=manifest["repository_snapshots"],
+        repositories=manifest["repositories"],
+        collection_runs=manifest["collection_runs"],
     )
 
 

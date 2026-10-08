@@ -35,6 +35,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Atomic, integrity-checked SQLite backups with machine-readable manifests
 - Guarded disaster recovery with schema validation and atomic database restores
 - Concurrent SQLite access using WAL mode and configurable lock retries
+- Integrity-checked SQLite WAL maintenance with optional offline compaction
 - Optional constant-time API-key protection for manual snapshot collection
 
 ## Stack
@@ -134,6 +135,18 @@ The restore command opens the backup read-only, runs an integrity check,
 validates every required table and column, and verifies the copied checksum and
 row-count manifest before atomically replacing the destination. Without
 `--overwrite`, an existing database is never changed.
+
+Checkpoint accumulated WAL data, run SQLite's optimizer, and verify database
+integrity with a machine-readable maintenance result:
+
+```bash
+cd backend
+python -m app.maintenance --database ../data/devpulse.db
+```
+
+Add `--vacuum` during a maintenance window with the API stopped to compact the
+database file. The result reports WAL frames, file sizes before and after,
+integrity status, and stored row counts for operational auditing.
 
 ## Example request
 
