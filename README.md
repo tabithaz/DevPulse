@@ -17,6 +17,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Automated pytest coverage and GitHub Actions validation
 - Browser dashboard for portfolio totals, growth rankings, alerts, snapshot freshness, GitHub quota, deltas, and collection
 - Prometheus metrics for portfolio totals and per-repository snapshot freshness SLAs
+- Prometheus RED metrics for API request rate, errors, latency, and in-flight work
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -72,6 +73,11 @@ collection endpoints. Clients then send the secret in `X-API-Key`. Comparison
 uses constant-time verification, rejected requests cannot call GitHub or mutate
 snapshot history, and signed webhooks plus read-only analytics remain available.
 The dashboard can send the optional key for collection without storing it.
+
+The `/metrics` endpoint also exposes bounded HTTP RED metrics labeled by FastAPI
+route templates rather than raw repository URLs. This makes request volume,
+error rates, latency distributions, and in-flight work available for alerts and
+dashboards without creating unbounded labels from owner or repository names.
 
 ## Run with Docker
 

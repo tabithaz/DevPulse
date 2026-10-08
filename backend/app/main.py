@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from pathlib import Path
 from statistics import median, pstdev
 from typing import Annotated
@@ -30,6 +31,7 @@ from app.github_client import (
     github_client_dependency,
 )
 from app.lead_time import analyze_lead_time
+from app.http_metrics import RequestMetrics, render_request_metrics
 from app.snapshot_store import (
     IdempotencyConflictError,
     SnapshotStore,
@@ -46,6 +48,33 @@ app = FastAPI(
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024
 MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
+request_metrics = RequestMetrics()
+
+
+@app.middleware("http")
+async def observe_http_requests(request: Request, call_next):
+    """Record bounded request-rate, error, and latency metrics."""
+    started_at = time.perf_counter()
+    request_metrics.begin()
+    try:
+        response = await call_next(request)
+    except BaseException:
+        request_metrics.observe(
+            request.method,
+            "unhandled",
+            500,
+            time.perf_counter() - started_at,
+        )
+        raise
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", "unmatched")
+    request_metrics.observe(
+        request.method,
+        route_path,
+        response.status_code,
+        time.perf_counter() - started_at,
+    )
+    return response
 
 
 @app.middleware("http")
@@ -523,6 +552,7 @@ def prometheus_metrics(
             f'devpulse_snapshot_stale{{repository="{label}"}} '
             f'{int(item["status"] == "stale")}'
         )
+    lines.extend(render_request_metrics(request_metrics.snapshot()))
     return Response(
         content="\n".join(lines) + "\n",
         media_type="text/plain; version=0.0.4",
