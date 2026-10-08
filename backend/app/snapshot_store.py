@@ -148,19 +148,24 @@ class SnapshotStore:
         database_path: str | Path,
         retention_per_repository: int = 365,
         collection_run_retention: int = 1000,
+        busy_timeout_ms: int = 5000,
     ) -> None:
         if retention_per_repository <= 0:
             raise ValueError("retention_per_repository must be greater than zero")
         if collection_run_retention <= 0:
             raise ValueError("collection_run_retention must be greater than zero")
+        if busy_timeout_ms <= 0:
+            raise ValueError("busy_timeout_ms must be greater than zero")
         self.database_path = str(database_path)
         self.retention_per_repository = retention_per_repository
         self.collection_run_retention = collection_run_retention
+        self.busy_timeout_ms = busy_timeout_ms
         self._initialize()
 
     @classmethod
     def from_environment(cls) -> "SnapshotStore":
         retention_value = os.getenv("DEVPULSE_SNAPSHOT_RETENTION", "365")
+        timeout_value = os.getenv("DEVPULSE_DB_BUSY_TIMEOUT_MS", "5000")
         try:
             retention = int(retention_value)
         except ValueError as error:
@@ -169,18 +174,33 @@ class SnapshotStore:
             ) from error
         if retention <= 0:
             raise ValueError("DEVPULSE_SNAPSHOT_RETENTION must be a positive integer")
+        try:
+            busy_timeout_ms = int(timeout_value)
+        except ValueError as error:
+            raise ValueError(
+                "DEVPULSE_DB_BUSY_TIMEOUT_MS must be a positive integer"
+            ) from error
+        if busy_timeout_ms <= 0:
+            raise ValueError("DEVPULSE_DB_BUSY_TIMEOUT_MS must be a positive integer")
         return cls(
             os.getenv("DEVPULSE_DB_PATH", "devpulse.db"),
             retention_per_repository=retention,
+            busy_timeout_ms=busy_timeout_ms,
         )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(
+            self.database_path,
+            timeout=self.busy_timeout_ms / 1000,
+        )
+        connection.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms}")
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.row_factory = sqlite3.Row
         return connection
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS repository_snapshots (

@@ -1,7 +1,9 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import csv
 from io import StringIO
 import sqlite3
+import time
 
 from fastapi.testclient import TestClient
 import pytest
@@ -139,6 +141,69 @@ def test_snapshot_retention_configuration_is_validated(tmp_path: Path, monkeypat
 
     monkeypatch.setenv("DEVPULSE_SNAPSHOT_RETENTION", "unlimited")
     with pytest.raises(ValueError, match="positive integer"):
+        SnapshotStore.from_environment()
+
+
+def test_snapshot_store_enables_wal_and_busy_timeout(tmp_path: Path) -> None:
+    database = tmp_path / "snapshots.db"
+    store = SnapshotStore(database, busy_timeout_ms=1750)
+
+    with store._connect() as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert journal_mode == "wal"
+    assert busy_timeout == 1750
+
+
+def test_snapshot_store_retries_brief_write_contention(tmp_path: Path) -> None:
+    database = tmp_path / "snapshots.db"
+    store = SnapshotStore(database, busy_timeout_ms=1000)
+    blocker = sqlite3.connect(database)
+    blocker.execute("BEGIN IMMEDIATE")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(
+            store.save,
+            snapshot("2026-09-21T12:00:00+00:00"),
+        )
+        time.sleep(0.05)
+        assert not pending.done()
+        blocker.commit()
+        pending.result(timeout=1)
+    blocker.close()
+
+    assert len(store.history("octocat/hello-world")) == 1
+
+
+def test_snapshot_store_reads_continue_during_a_write_transaction(tmp_path: Path) -> None:
+    database = tmp_path / "snapshots.db"
+    store = SnapshotStore(database)
+    store.save(snapshot("2026-09-21T12:00:00+00:00"))
+    writer = sqlite3.connect(database)
+    writer.execute("BEGIN IMMEDIATE")
+
+    history = store.history("octocat/hello-world")
+
+    writer.rollback()
+    writer.close()
+    assert len(history) == 1
+
+
+def test_database_busy_timeout_environment_is_validated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DEVPULSE_DB_PATH", str(tmp_path / "environment.db"))
+    monkeypatch.setenv("DEVPULSE_DB_BUSY_TIMEOUT_MS", "2500")
+    assert SnapshotStore.from_environment().busy_timeout_ms == 2500
+
+    monkeypatch.setenv("DEVPULSE_DB_BUSY_TIMEOUT_MS", "immediately")
+    with pytest.raises(ValueError, match="DEVPULSE_DB_BUSY_TIMEOUT_MS"):
+        SnapshotStore.from_environment()
+
+    monkeypatch.setenv("DEVPULSE_DB_BUSY_TIMEOUT_MS", "0")
+    with pytest.raises(ValueError, match="DEVPULSE_DB_BUSY_TIMEOUT_MS"):
         SnapshotStore.from_environment()
 
 

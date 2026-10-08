@@ -33,6 +33,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Durable, bounded audit history for API, batch, and webhook collection runs
 - Atomic, integrity-checked SQLite backups with machine-readable manifests
 - Guarded disaster recovery with schema validation and atomic database restores
+- Concurrent SQLite access using WAL mode and configurable lock retries
 - Optional constant-time API-key protection for manual snapshot collection
 
 ## Stack
@@ -90,6 +91,10 @@ Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
 to use a different location, including a mounted Docker volume. DevPulse keeps
 the newest 365 snapshots per repository by default so storage remains bounded.
 Set `DEVPULSE_SNAPSHOT_RETENTION` to a different positive limit when needed.
+SQLite runs in write-ahead logging mode so dashboard reads can continue during
+snapshot writes. Brief write contention waits up to five seconds instead of
+failing immediately; set `DEVPULSE_DB_BUSY_TIMEOUT_MS` to another positive
+millisecond value when deployment traffic requires a different retry window.
 
 Confirm the application and its snapshot database are ready with:
 
