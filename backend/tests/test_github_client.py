@@ -94,6 +94,87 @@ def test_github_client_rejects_malformed_payload() -> None:
             github.repository_snapshot("octocat", "hello-world")
 
 
+def test_github_client_retries_transient_server_failures() -> None:
+    statuses = iter((503, 502, 200))
+    delays = []
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        status = next(statuses)
+        return httpx.Response(
+            status,
+            json=repository_payload() if status == 200 else None,
+            request=request,
+        )
+
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        backoff_seconds=0.1,
+        sleep=delays.append,
+    ) as github:
+        snapshot = github.repository_snapshot("octocat", "hello-world")
+
+    assert snapshot.repository == "octocat/hello-world"
+    assert requests == 3
+    assert delays == [0.1, 0.2]
+
+
+def test_github_client_bounds_network_retries() -> None:
+    delays = []
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        max_attempts=3,
+        backoff_seconds=0.1,
+        sleep=delays.append,
+    ) as github:
+        with pytest.raises(GitHubServiceError, match="unavailable"):
+            github.repository_snapshot("octocat", "hello-world")
+
+    assert requests == 3
+    assert delays == [0.1, 0.2]
+
+
+def test_github_client_does_not_retry_permanent_errors() -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(404, request=request)
+
+    with GitHubClient(transport=httpx.MockTransport(handler)) as github:
+        with pytest.raises(GitHubNotFoundError):
+            github.repository_snapshot("missing", "repository")
+
+    assert requests == 1
+
+
+def test_github_client_environment_retry_configuration(monkeypatch) -> None:
+    class NoopHttpClient:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(httpx, "Client", lambda **_kwargs: NoopHttpClient())
+    monkeypatch.setenv("DEVPULSE_GITHUB_MAX_ATTEMPTS", "5")
+    monkeypatch.setenv("DEVPULSE_GITHUB_BACKOFF_SECONDS", "0.5")
+
+    github = GitHubClient.from_environment()
+    try:
+        assert github._max_attempts == 5
+        assert github._backoff_seconds == 0.5
+    finally:
+        github.close()
+
+
 def test_github_client_classifies_429_without_rate_limit_headers() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(429, request=request)

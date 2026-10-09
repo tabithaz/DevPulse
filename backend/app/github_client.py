@@ -1,7 +1,9 @@
+import math
 import os
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Iterator
+from typing import Callable, Iterator
 
 import httpx
 
@@ -64,7 +66,18 @@ class GitHubClient:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout_seconds: float = 10.0,
+        max_attempts: int = 3,
+        backoff_seconds: float = 0.25,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if max_attempts < 1 or max_attempts > 5:
+            raise ValueError("max_attempts must be between 1 and 5")
+        if (
+            not math.isfinite(backoff_seconds)
+            or backoff_seconds < 0
+            or backoff_seconds > 60
+        ):
+            raise ValueError("backoff_seconds must be between 0 and 60")
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "DevPulse",
@@ -78,10 +91,33 @@ class GitHubClient:
             timeout=timeout_seconds,
             transport=transport,
         )
+        self._max_attempts = max_attempts
+        self._backoff_seconds = backoff_seconds
+        self._sleep = sleep
 
     @classmethod
     def from_environment(cls) -> "GitHubClient":
-        return cls(token=os.getenv("GITHUB_TOKEN"))
+        try:
+            max_attempts = int(os.getenv("DEVPULSE_GITHUB_MAX_ATTEMPTS", "3"))
+            backoff_seconds = float(
+                os.getenv("DEVPULSE_GITHUB_BACKOFF_SECONDS", "0.25")
+            )
+            if (
+                max_attempts < 1
+                or max_attempts > 5
+                or not math.isfinite(backoff_seconds)
+                or backoff_seconds < 0
+                or backoff_seconds > 60
+            ):
+                raise ValueError
+        except ValueError:
+            max_attempts = 3
+            backoff_seconds = 0.25
+        return cls(
+            token=os.getenv("GITHUB_TOKEN"),
+            max_attempts=max_attempts,
+            backoff_seconds=backoff_seconds,
+        )
 
     def __enter__(self) -> "GitHubClient":
         return self
@@ -92,12 +128,25 @@ class GitHubClient:
     def close(self) -> None:
         self._client.close()
 
+    def _get(self, path: str) -> httpx.Response:
+        """Retry bounded transient failures without replaying permanent errors."""
+        for attempt in range(self._max_attempts):
+            try:
+                response = self._client.get(path)
+            except httpx.TransportError:
+                if attempt + 1 == self._max_attempts:
+                    raise GitHubServiceError("GitHub API is unavailable")
+            else:
+                if response.status_code not in {500, 502, 503, 504}:
+                    return response
+                if attempt + 1 == self._max_attempts:
+                    return response
+            self._sleep(self._backoff_seconds * (2**attempt))
+        raise AssertionError("retry loop must return or raise")
+
     def rate_limit(self) -> GitHubRateLimit:
         """Return the live quota for repository API requests."""
-        try:
-            response = self._client.get("/rate_limit")
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise GitHubServiceError("GitHub API is unavailable") from exc
+        response = self._get("/rate_limit")
 
         if response.is_error:
             raise GitHubServiceError(f"GitHub API returned status {response.status_code}")
@@ -133,10 +182,7 @@ class GitHubClient:
             raise GitHubServiceError("GitHub API returned an invalid rate limit payload") from exc
 
     def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
-        try:
-            response = self._client.get(f"/repos/{owner}/{repository}")
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise GitHubServiceError("GitHub API is unavailable") from exc
+        response = self._get(f"/repos/{owner}/{repository}")
 
         if response.status_code == 404:
             raise GitHubNotFoundError(f"repository {owner}/{repository} was not found")

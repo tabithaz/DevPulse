@@ -20,6 +20,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Prometheus RED metrics for API request rate, errors, latency, and in-flight work
 - Validated request-ID propagation with structured completion logs for incident tracing
 - Centralized browser security headers with a strict dashboard content policy
+- Bounded exponential retries for transient GitHub API and network failures
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -107,6 +108,11 @@ export GITHUB_TOKEN=github_pat_your_token
 ```
 
 The token is only sent to GitHub and is never included in API responses.
+Transient GitHub network failures and HTTP 500, 502, 503, or 504 responses are
+retried up to three times with exponential backoff. Rate limits and permanent
+client errors fail immediately. Deployments can tune the bounded policy with
+`DEVPULSE_GITHUB_MAX_ATTEMPTS` from 1 to 5 and
+`DEVPULSE_GITHUB_BACKOFF_SECONDS` without rebuilding the service.
 Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
 to use a different location, including a mounted Docker volume. DevPulse keeps
 the newest 365 snapshots per repository by default so storage remains bounded.
