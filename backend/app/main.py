@@ -44,7 +44,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 app = FastAPI(
     title="DevPulse API",
     description="API for developer activity and repository analytics.",
-    version="0.23.0",
+    version="0.24.0",
 )
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
@@ -53,6 +53,31 @@ MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 request_metrics = RequestMetrics()
 LOGGER = logging.getLogger("devpulse.requests")
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Apply browser security controls without breaking interactive API docs."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+    )
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    if request.url.path == "/dashboard":
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; base-uri 'none'; form-action 'self'; "
+            "frame-ancestors 'none'; connect-src 'self'; "
+            "img-src 'self' data:; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'"
+        )
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 @app.middleware("http")

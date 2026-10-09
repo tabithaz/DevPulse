@@ -13,6 +13,12 @@ def test_dashboard_is_served() -> None:
     assert "DevPulse Dashboard" in response.text
     assert 'id="repository-form"' in response.text
     assert 'id="api-key"' in response.text
+    assert response.headers["content-security-policy"] == (
+        "default-src 'none'; base-uri 'none'; form-action 'self'; "
+        "frame-ancestors 'none'; connect-src 'self'; "
+        "img-src 'self' data:; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'"
+    )
 
 
 def test_dashboard_integrates_with_snapshot_api() -> None:

@@ -19,6 +19,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Prometheus metrics for portfolio totals and per-repository snapshot freshness SLAs
 - Prometheus RED metrics for API request rate, errors, latency, and in-flight work
 - Validated request-ID propagation with structured completion logs for incident tracing
+- Centralized browser security headers with a strict dashboard content policy
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -85,6 +86,12 @@ ID when it uses a bounded safe format, otherwise it generates one, and emits a
 compact JSON completion log with the ID, route template, status, and duration.
 This lets operators correlate a failed client call without logging raw dynamic
 repository URLs.
+
+Every response includes browser hardening headers that prevent MIME sniffing,
+framing, referrer leakage, and access to unused device capabilities. The
+dashboard also receives a restrictive Content Security Policy limited to its
+same-origin API calls and bundled inline assets. HTTPS requests enable one-year
+HTTP Strict Transport Security, while local HTTP development remains usable.
 
 ## Run with Docker
 

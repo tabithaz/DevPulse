@@ -16,6 +16,29 @@ def test_health_check() -> None:
     assert response.json() == {"status": "healthy"}
 
 
+def test_responses_include_browser_security_headers() -> None:
+    response = client.get("/health")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+    assert response.headers["permissions-policy"] == (
+        "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+    )
+    assert "content-security-policy" not in response.headers
+    assert "strict-transport-security" not in response.headers
+
+
+def test_https_responses_enable_strict_transport_security() -> None:
+    with TestClient(app, base_url="https://devpulse.example") as https_client:
+        response = https_client.get("/health")
+
+    assert response.headers["strict-transport-security"] == (
+        "max-age=31536000; includeSubDomains"
+    )
+
+
 def test_request_id_is_propagated_and_logged(caplog) -> None:
     request_id = "release-check:42"
     with caplog.at_level(logging.INFO, logger="devpulse.requests"):
