@@ -1,3 +1,7 @@
+import json
+import logging
+import re
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -10,6 +14,35 @@ def test_health_check() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
+
+
+def test_request_id_is_propagated_and_logged(caplog) -> None:
+    request_id = "release-check:42"
+    with caplog.at_level(logging.INFO, logger="devpulse.requests"):
+        response = client.get("/health", headers={"X-Request-ID": request_id})
+
+    assert response.headers["x-request-id"] == request_id
+    request_logs = [
+        record for record in caplog.records if record.name == "devpulse.requests"
+    ]
+    record = json.loads(request_logs[-1].message)
+    assert record | {"duration_ms": 0} == {
+        "event": "http_request_completed",
+        "request_id": request_id,
+        "method": "GET",
+        "route": "/health",
+        "status": 200,
+        "duration_ms": 0,
+    }
+    assert record["duration_ms"] >= 0
+
+
+def test_invalid_request_id_is_replaced() -> None:
+    response = client.get("/health", headers={"X-Request-ID": "unsafe id value"})
+
+    generated = response.headers["x-request-id"]
+    assert generated != "unsafe id value"
+    assert re.fullmatch(r"[0-9a-f]{32}", generated)
 
 
 def test_readiness_check_verifies_database(tmp_path, monkeypatch) -> None:

@@ -7,6 +7,7 @@ import hashlib
 import hmac
 from io import StringIO
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -14,6 +15,7 @@ import time
 from pathlib import Path
 from statistics import median, pstdev
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
@@ -48,7 +50,62 @@ app = FastAPI(
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024
 MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 request_metrics = RequestMetrics()
+LOGGER = logging.getLogger("devpulse.requests")
+
+
+@app.middleware("http")
+async def trace_http_requests(request: Request, call_next):
+    """Propagate safe request IDs and emit one structured completion event."""
+    supplied_request_id = request.headers.get("X-Request-ID", "")
+    request_id = (
+        supplied_request_id
+        if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
+        else uuid4().hex
+    )
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except BaseException:
+        LOGGER.exception(
+            json.dumps(
+                {
+                    "event": "http_request_completed",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "route": "unhandled",
+                    "status": 500,
+                    "duration_ms": round(
+                        (time.perf_counter() - started_at) * 1000,
+                        3,
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+        raise
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", "unmatched")
+    response.headers["X-Request-ID"] = request_id
+    LOGGER.info(
+        json.dumps(
+            {
+                "event": "http_request_completed",
+                "request_id": request_id,
+                "method": request.method,
+                "route": route_path,
+                "status": response.status_code,
+                "duration_ms": round(
+                    (time.perf_counter() - started_at) * 1000,
+                    3,
+                ),
+            },
+            separators=(",", ":"),
+        )
+    )
+    return response
 
 
 @app.middleware("http")

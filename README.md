@@ -18,6 +18,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Browser dashboard for portfolio totals, growth rankings, alerts, snapshot freshness, GitHub quota, deltas, and collection
 - Prometheus metrics for portfolio totals and per-repository snapshot freshness SLAs
 - Prometheus RED metrics for API request rate, errors, latency, and in-flight work
+- Validated request-ID propagation with structured completion logs for incident tracing
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -79,6 +80,11 @@ The `/metrics` endpoint also exposes bounded HTTP RED metrics labeled by FastAPI
 route templates rather than raw repository URLs. This makes request volume,
 error rates, latency distributions, and in-flight work available for alerts and
 dashboards without creating unbounded labels from owner or repository names.
+Every response also includes an `X-Request-ID`. DevPulse preserves a caller's
+ID when it uses a bounded safe format, otherwise it generates one, and emits a
+compact JSON completion log with the ID, route template, status, and duration.
+This lets operators correlate a failed client call without logging raw dynamic
+repository URLs.
 
 ## Run with Docker
 
