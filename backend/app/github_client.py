@@ -1,5 +1,6 @@
 import math
 import os
+from threading import Lock
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -23,7 +24,64 @@ class GitHubRateLimitError(GitHubClientError):
 
 
 class GitHubServiceError(GitHubClientError):
-    pass
+    def __init__(self, message: str, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class GitHubCircuitBreaker:
+    """Thread-safe breaker for repeated, fully retried GitHub outages."""
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_seconds: float = 30.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if failure_threshold < 1:
+            raise ValueError("failure_threshold must be positive")
+        if not math.isfinite(recovery_seconds) or recovery_seconds <= 0:
+            raise ValueError("recovery_seconds must be positive")
+        self._failure_threshold = failure_threshold
+        self._recovery_seconds = recovery_seconds
+        self._clock = clock
+        self._failures = 0
+        self._opened_until: float | None = None
+        self._lock = Lock()
+
+    @classmethod
+    def from_environment(cls) -> "GitHubCircuitBreaker":
+        try:
+            threshold = int(os.getenv("DEVPULSE_GITHUB_CIRCUIT_FAILURES", "5"))
+            recovery = float(os.getenv("DEVPULSE_GITHUB_CIRCUIT_SECONDS", "30"))
+            return cls(threshold, recovery)
+        except ValueError:
+            return cls()
+
+    def before_request(self) -> None:
+        with self._lock:
+            if self._opened_until is None:
+                return
+            remaining = self._opened_until - self._clock()
+            if remaining <= 0:
+                self._opened_until = None
+                self._failures = 0
+                return
+            raise GitHubServiceError(
+                "GitHub API circuit breaker is open",
+                retry_after_seconds=max(1, math.ceil(remaining)),
+            )
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = 0
+            self._opened_until = None
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._failures += 1
+            if self._failures >= self._failure_threshold:
+                self._opened_until = self._clock() + self._recovery_seconds
 
 
 @dataclass(frozen=True)
@@ -69,6 +127,7 @@ class GitHubClient:
         max_attempts: int = 3,
         backoff_seconds: float = 0.25,
         sleep: Callable[[float], None] = time.sleep,
+        circuit_breaker: GitHubCircuitBreaker | None = None,
     ) -> None:
         if max_attempts < 1 or max_attempts > 5:
             raise ValueError("max_attempts must be between 1 and 5")
@@ -94,9 +153,13 @@ class GitHubClient:
         self._max_attempts = max_attempts
         self._backoff_seconds = backoff_seconds
         self._sleep = sleep
+        self._circuit_breaker = circuit_breaker or GitHubCircuitBreaker()
 
     @classmethod
-    def from_environment(cls) -> "GitHubClient":
+    def from_environment(
+        cls,
+        circuit_breaker: GitHubCircuitBreaker | None = None,
+    ) -> "GitHubClient":
         try:
             max_attempts = int(os.getenv("DEVPULSE_GITHUB_MAX_ATTEMPTS", "3"))
             backoff_seconds = float(
@@ -117,6 +180,7 @@ class GitHubClient:
             token=os.getenv("GITHUB_TOKEN"),
             max_attempts=max_attempts,
             backoff_seconds=backoff_seconds,
+            circuit_breaker=circuit_breaker,
         )
 
     def __enter__(self) -> "GitHubClient":
@@ -130,16 +194,20 @@ class GitHubClient:
 
     def _get(self, path: str) -> httpx.Response:
         """Retry bounded transient failures without replaying permanent errors."""
+        self._circuit_breaker.before_request()
         for attempt in range(self._max_attempts):
             try:
                 response = self._client.get(path)
             except httpx.TransportError:
                 if attempt + 1 == self._max_attempts:
+                    self._circuit_breaker.record_failure()
                     raise GitHubServiceError("GitHub API is unavailable")
             else:
                 if response.status_code not in {500, 502, 503, 504}:
+                    self._circuit_breaker.record_success()
                     return response
                 if attempt + 1 == self._max_attempts:
+                    self._circuit_breaker.record_failure()
                     return response
             self._sleep(self._backoff_seconds * (2**attempt))
         raise AssertionError("retry loop must return or raise")
@@ -213,6 +281,9 @@ class GitHubClient:
             raise GitHubServiceError("GitHub API returned an invalid repository payload") from exc
 
 
+shared_github_circuit_breaker = GitHubCircuitBreaker.from_environment()
+
+
 def github_client_dependency() -> Iterator[GitHubClient]:
-    with GitHubClient.from_environment() as client:
+    with GitHubClient.from_environment(shared_github_circuit_breaker) as client:
         yield client

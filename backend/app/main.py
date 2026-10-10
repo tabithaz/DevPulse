@@ -73,6 +73,15 @@ def github_rate_limit_http_error(exc: GitHubRateLimitError) -> HTTPException:
     return HTTPException(status_code=429, detail=detail, headers=headers)
 
 
+def github_service_http_error(exc: GitHubServiceError) -> HTTPException:
+    headers = {}
+    status_code = 502
+    if exc.retry_after_seconds is not None:
+        status_code = 503
+        headers["Retry-After"] = str(exc.retry_after_seconds)
+    return HTTPException(status_code=status_code, detail=str(exc), headers=headers)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     """Apply browser security controls without breaking interactive API docs."""
@@ -742,7 +751,7 @@ async def github_webhook(
     except GitHubRateLimitError as exc:
         raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise github_service_http_error(exc) from exc
 
     result = {
         "status": "collected",
@@ -776,7 +785,7 @@ def github_repository_snapshot(
     except GitHubRateLimitError as exc:
         raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise github_service_http_error(exc) from exc
 
 
 @app.get("/github/rate-limit")
@@ -787,7 +796,7 @@ def github_rate_limit(
     try:
         return client.rate_limit().to_dict()
     except GitHubServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise github_service_http_error(exc) from exc
 
 
 @app.post("/github/{owner}/{repository}/snapshots", status_code=201)
@@ -817,7 +826,7 @@ def collect_github_repository_snapshot(
     except GitHubRateLimitError as exc:
         raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise github_service_http_error(exc) from exc
 
     result = snapshot.to_dict()
     if idempotency_key is None:
@@ -868,7 +877,7 @@ def collect_github_repository_snapshots(
         except GitHubRateLimitError as exc:
             raise github_rate_limit_http_error(exc) from exc
         except GitHubServiceError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise github_service_http_error(exc) from exc
 
     result = {
         "collected": len(snapshots),

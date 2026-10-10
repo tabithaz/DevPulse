@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.github_client import (
     GitHubClient,
+    GitHubCircuitBreaker,
     GitHubNotFoundError,
     GitHubRateLimit,
     GitHubRateLimitError,
@@ -157,6 +158,68 @@ def test_github_client_does_not_retry_permanent_errors() -> None:
             github.repository_snapshot("missing", "repository")
 
     assert requests == 1
+
+
+def test_github_circuit_breaker_stops_calls_until_recovery() -> None:
+    now = [100.0]
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(503, request=request)
+
+    breaker = GitHubCircuitBreaker(
+        failure_threshold=2,
+        recovery_seconds=30,
+        clock=lambda: now[0],
+    )
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        max_attempts=1,
+        circuit_breaker=breaker,
+    ) as github:
+        with pytest.raises(GitHubServiceError, match="status 503"):
+            github.repository_snapshot("octocat", "hello-world")
+        with pytest.raises(GitHubServiceError, match="status 503"):
+            github.repository_snapshot("octocat", "hello-world")
+        with pytest.raises(GitHubServiceError, match="circuit breaker") as error:
+            github.repository_snapshot("octocat", "hello-world")
+        assert error.value.retry_after_seconds == 30
+        assert requests == 2
+
+        now[0] += 30
+        with pytest.raises(GitHubServiceError, match="status 503"):
+            github.repository_snapshot("octocat", "hello-world")
+        assert requests == 3
+
+
+def test_success_resets_github_circuit_failure_count() -> None:
+    statuses = iter((503, 200, 503, 503))
+    breaker = GitHubCircuitBreaker(failure_threshold=2, recovery_seconds=30)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        return httpx.Response(
+            status,
+            json=repository_payload() if status == 200 else None,
+            request=request,
+        )
+
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        max_attempts=1,
+        circuit_breaker=breaker,
+    ) as github:
+        with pytest.raises(GitHubServiceError):
+            github.repository_snapshot("octocat", "hello-world")
+        assert github.repository_snapshot("octocat", "hello-world").stars == 12
+        with pytest.raises(GitHubServiceError):
+            github.repository_snapshot("octocat", "hello-world")
+        with pytest.raises(GitHubServiceError):
+            github.repository_snapshot("octocat", "hello-world")
+        with pytest.raises(GitHubServiceError, match="circuit breaker"):
+            github.repository_snapshot("octocat", "hello-world")
 
 
 def test_github_client_environment_retry_configuration(monkeypatch) -> None:
@@ -362,3 +425,21 @@ def test_github_snapshot_endpoint_translates_service_errors() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 502
+
+
+def test_github_snapshot_endpoint_exposes_circuit_recovery_delay() -> None:
+    class OpenCircuitClient:
+        def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
+            raise GitHubServiceError(
+                "GitHub API circuit breaker is open",
+                retry_after_seconds=17,
+            )
+
+    app.dependency_overrides[github_client_dependency] = lambda: OpenCircuitClient()
+    try:
+        response = client.get("/github/octocat/hello-world/snapshot")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "17"

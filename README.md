@@ -23,6 +23,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Negotiated gzip compression for large API, dashboard, and report responses
 - Bounded exponential retries for transient GitHub API and network failures
 - Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
+- Shared GitHub outage circuit breaker with automatic recovery and retry guidance
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -120,6 +121,10 @@ retried up to three times with exponential backoff. Rate limits and permanent
 client errors fail immediately. Deployments can tune the bounded policy with
 `DEVPULSE_GITHUB_MAX_ATTEMPTS` from 1 to 5 and
 `DEVPULSE_GITHUB_BACKOFF_SECONDS` without rebuilding the service.
+After five fully retried failures, the shared circuit breaker pauses upstream
+calls for 30 seconds and returns HTTP 503 with `Retry-After`. Configure those
+bounds with `DEVPULSE_GITHUB_CIRCUIT_FAILURES` and
+`DEVPULSE_GITHUB_CIRCUIT_SECONDS`.
 Snapshot history is stored in `devpulse.db` by default. Set `DEVPULSE_DB_PATH`
 to use a different location, including a mounted Docker volume. DevPulse keeps
 the newest 365 snapshots per repository by default so storage remains bounded.
