@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.change_failure import analyze_change_failure
 from app.deployment_batch import analyze_deployment_batches
@@ -46,6 +47,7 @@ app = FastAPI(
     description="API for developer activity and repository analytics.",
     version="0.24.0",
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024

@@ -20,6 +20,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Prometheus RED metrics for API request rate, errors, latency, and in-flight work
 - Validated request-ID propagation with structured completion logs for incident tracing
 - Centralized browser security headers with a strict dashboard content policy
+- Negotiated gzip compression for large API, dashboard, and report responses
 - Bounded exponential retries for transient GitHub API and network failures
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
@@ -87,6 +88,11 @@ ID when it uses a bounded safe format, otherwise it generates one, and emits a
 compact JSON completion log with the ID, route template, status, and duration.
 This lets operators correlate a failed client call without logging raw dynamic
 repository URLs.
+
+Responses of at least 1,000 bytes are compressed when clients advertise gzip
+support. Small health and readiness responses remain uncompressed to avoid
+compression overhead, while portfolio JSON, dashboard assets, API schemas, and
+large reports use less network bandwidth.
 
 Every response includes browser hardening headers that prevent MIME sniffing,
 framing, referrer leakage, and access to unused device capabilities. The
