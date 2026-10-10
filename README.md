@@ -22,6 +22,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Centralized browser security headers with a strict dashboard content policy
 - Negotiated gzip compression for large API, dashboard, and report responses
 - Bounded exponential retries for transient GitHub API and network failures
+- Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories

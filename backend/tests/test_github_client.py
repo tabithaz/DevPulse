@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import time
 
 import httpx
 import pytest
@@ -315,9 +316,11 @@ def test_github_snapshot_endpoint_translates_not_found() -> None:
 
 
 def test_github_snapshot_endpoint_translates_rate_limits() -> None:
+    reset_at = int(time.time()) + 120
+
     class LimitedClient:
         def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
-            raise GitHubRateLimitError("1789999999")
+            raise GitHubRateLimitError(str(reset_at))
 
     app.dependency_overrides[github_client_dependency] = lambda: LimitedClient()
     try:
@@ -326,7 +329,25 @@ def test_github_snapshot_endpoint_translates_rate_limits() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
-    assert "1789999999" in response.json()["detail"]
+    assert str(reset_at) in response.json()["detail"]
+    assert response.headers["x-ratelimit-reset"] == str(reset_at)
+    assert int(response.headers["retry-after"]) in {119, 120}
+
+
+def test_github_snapshot_endpoint_omits_backoff_headers_for_invalid_reset() -> None:
+    class LimitedClient:
+        def repository_snapshot(self, owner: str, repository: str) -> RepositorySnapshot:
+            raise GitHubRateLimitError("invalid")
+
+    app.dependency_overrides[github_client_dependency] = lambda: LimitedClient()
+    try:
+        response = client.get("/github/octocat/hello-world/snapshot")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+    assert "retry-after" not in response.headers
+    assert "x-ratelimit-reset" not in response.headers
 
 
 def test_github_snapshot_endpoint_translates_service_errors() -> None:

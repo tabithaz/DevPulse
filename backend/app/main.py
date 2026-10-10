@@ -57,6 +57,22 @@ request_metrics = RequestMetrics()
 LOGGER = logging.getLogger("devpulse.requests")
 
 
+def github_rate_limit_http_error(exc: GitHubRateLimitError) -> HTTPException:
+    """Translate GitHub quota exhaustion into actionable client backoff metadata."""
+    detail = "GitHub API rate limit exceeded"
+    headers: dict[str, str] = {}
+    if exc.reset_at:
+        detail += f"; resets at Unix timestamp {exc.reset_at}"
+        try:
+            reset_at = int(exc.reset_at)
+            if reset_at >= 0:
+                headers["X-RateLimit-Reset"] = str(reset_at)
+                headers["Retry-After"] = str(max(0, reset_at - int(time.time())))
+        except ValueError:
+            pass
+    return HTTPException(status_code=429, detail=detail, headers=headers)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     """Apply browser security controls without breaking interactive API docs."""
@@ -724,10 +740,7 @@ async def github_webhook(
     except GitHubNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except GitHubRateLimitError as exc:
-        detail = "GitHub API rate limit exceeded"
-        if exc.reset_at:
-            detail += f"; resets at Unix timestamp {exc.reset_at}"
-        raise HTTPException(status_code=429, detail=detail) from exc
+        raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -761,10 +774,7 @@ def github_repository_snapshot(
     except GitHubNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except GitHubRateLimitError as exc:
-        detail = "GitHub API rate limit exceeded"
-        if exc.reset_at:
-            detail += f"; resets at Unix timestamp {exc.reset_at}"
-        raise HTTPException(status_code=429, detail=detail) from exc
+        raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -805,10 +815,7 @@ def collect_github_repository_snapshot(
     except GitHubNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except GitHubRateLimitError as exc:
-        detail = "GitHub API rate limit exceeded"
-        if exc.reset_at:
-            detail += f"; resets at Unix timestamp {exc.reset_at}"
-        raise HTTPException(status_code=429, detail=detail) from exc
+        raise github_rate_limit_http_error(exc) from exc
     except GitHubServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -859,10 +866,7 @@ def collect_github_repository_snapshots(
         except GitHubNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except GitHubRateLimitError as exc:
-            detail = "GitHub API rate limit exceeded"
-            if exc.reset_at:
-                detail += f"; resets at Unix timestamp {exc.reset_at}"
-            raise HTTPException(status_code=429, detail=detail) from exc
+            raise github_rate_limit_http_error(exc) from exc
         except GitHubServiceError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
