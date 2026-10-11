@@ -21,6 +21,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Validated request-ID propagation with structured completion logs for incident tracing
 - Centralized browser security headers with a strict dashboard content policy
 - Negotiated gzip compression for large API, dashboard, and report responses
+- Configurable pre-parse request limits that protect write endpoints from oversized bodies
 - Bounded exponential retries for transient GitHub API and network failures
 - Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
 - Shared GitHub outage circuit breaker with automatic recovery and retry guidance
@@ -101,6 +102,12 @@ framing, referrer leakage, and access to unused device capabilities. The
 dashboard also receives a restrictive Content Security Policy limited to its
 same-origin API calls and bundled inline assets. HTTPS requests enable one-year
 HTTP Strict Transport Security, while local HTTP development remains usable.
+
+Write-request bodies are capped at 1 MiB before JSON parsing or request-model
+validation. Set `DEVPULSE_MAX_REQUEST_BYTES` to a positive byte count when a
+deployment needs a different ceiling. Oversized requests receive HTTP 413 with
+`X-Max-Request-Bytes`; the signed webhook endpoint still enforces its tighter
+256 KiB payload limit.
 
 ## Run with Docker
 

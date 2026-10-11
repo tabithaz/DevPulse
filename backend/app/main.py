@@ -51,10 +51,52 @@ app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024
+DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
 MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 request_metrics = RequestMetrics()
 LOGGER = logging.getLogger("devpulse.requests")
+
+
+def max_request_bytes() -> int:
+    configured = os.getenv(
+        "DEVPULSE_MAX_REQUEST_BYTES",
+        str(DEFAULT_MAX_REQUEST_BYTES),
+    )
+    try:
+        maximum = int(configured)
+    except ValueError:
+        return DEFAULT_MAX_REQUEST_BYTES
+    return maximum if maximum > 0 else DEFAULT_MAX_REQUEST_BYTES
+
+
+@app.middleware("http")
+async def limit_request_bodies(request: Request, call_next):
+    """Reject oversized write requests before parsing or validation."""
+    if request.method not in {"POST", "PUT", "PATCH"}:
+        return await call_next(request)
+
+    maximum = max_request_bytes()
+    declared_length = request.headers.get("content-length")
+    if declared_length is not None:
+        try:
+            if int(declared_length) > maximum:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "request body exceeds configured byte limit"},
+                    headers={"X-Max-Request-Bytes": str(maximum)},
+                )
+        except ValueError:
+            pass
+
+    body = await request.body()
+    if len(body) > maximum:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "request body exceeds configured byte limit"},
+            headers={"X-Max-Request-Bytes": str(maximum)},
+        )
+    return await call_next(request)
 
 
 def github_rate_limit_http_error(exc: GitHubRateLimitError) -> HTTPException:
