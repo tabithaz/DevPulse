@@ -517,6 +517,27 @@ class RepositoryTarget(BaseModel):
         return normalized
 
 
+def webhook_repository_allowlist() -> set[str] | None:
+    """Return normalized repositories permitted to trigger webhook collection."""
+    configured = os.getenv("DEVPULSE_WEBHOOK_REPOSITORIES", "").strip()
+    if not configured:
+        return None
+
+    allowed: set[str] = set()
+    for entry in configured.split(","):
+        full_name = entry.strip()
+        if not full_name:
+            continue
+        if full_name.count("/") != 1:
+            raise ValueError("invalid webhook repository allowlist")
+        owner, repository = full_name.split("/", 1)
+        target = RepositoryTarget(owner=owner, repository=repository)
+        allowed.add(f"{target.owner}/{target.repository}".casefold())
+    if not allowed:
+        raise ValueError("invalid webhook repository allowlist")
+    return allowed
+
+
 class SnapshotCollectionRequest(BaseModel):
     repositories: list[RepositoryTarget] = Field(min_length=1, max_length=25)
 
@@ -772,6 +793,20 @@ async def github_webhook(
         target = RepositoryTarget(owner=owner, repository=repository)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="webhook repository is invalid") from exc
+
+    try:
+        allowed_repositories = webhook_repository_allowlist()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="webhook repository allowlist is invalid",
+        ) from exc
+    if (
+        allowed_repositories is not None
+        and f"{target.owner}/{target.repository}".casefold()
+        not in allowed_repositories
+    ):
+        raise HTTPException(status_code=403, detail="webhook repository is not allowed")
 
     idempotency_key = f"webhook:{delivery_id}"
     fingerprint = hashlib.sha256(body).hexdigest()

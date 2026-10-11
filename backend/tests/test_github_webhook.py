@@ -170,3 +170,54 @@ def test_non_object_payload_is_rejected(webhook_dependencies) -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "invalid GitHub webhook payload"}
+
+
+def test_repository_allowlist_accepts_configured_repository(
+    webhook_dependencies,
+    monkeypatch,
+) -> None:
+    github, store = webhook_dependencies
+    monkeypatch.setenv(
+        "DEVPULSE_WEBHOOK_REPOSITORIES",
+        " tabithaz/TelemetryGuard, TABITHAZ/DEVPULSE ",
+    )
+    body = webhook_body("tabithaz/DevPulse")
+
+    response = client.post("/github/webhooks", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 202
+    assert github.calls == 1
+    assert len(store.history("tabithaz/DevPulse")) == 1
+
+
+def test_repository_allowlist_rejects_unconfigured_repository_without_side_effects(
+    webhook_dependencies,
+    monkeypatch,
+) -> None:
+    github, store = webhook_dependencies
+    monkeypatch.setenv("DEVPULSE_WEBHOOK_REPOSITORIES", "tabithaz/DevPulse")
+    body = webhook_body("octocat/hello-world")
+
+    response = client.post("/github/webhooks", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "webhook repository is not allowed"}
+    assert github.calls == 0
+    assert store.history("octocat/hello-world") == []
+    assert store.collection_runs() == []
+
+
+def test_invalid_repository_allowlist_fails_closed(
+    webhook_dependencies,
+    monkeypatch,
+) -> None:
+    github, store = webhook_dependencies
+    monkeypatch.setenv("DEVPULSE_WEBHOOK_REPOSITORIES", "not-a-repository")
+    body = webhook_body()
+
+    response = client.post("/github/webhooks", content=body, headers=signed_headers(body))
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "webhook repository allowlist is invalid"}
+    assert github.calls == 0
+    assert store.history("tabithaz/DevPulse") == []

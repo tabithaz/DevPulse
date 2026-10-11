@@ -305,6 +305,12 @@ key. Retried deliveries return the original response without another GitHub API
 call or database write. Unsupported authenticated events are acknowledged and
 ignored.
 
+Set `DEVPULSE_WEBHOOK_REPOSITORIES` to a comma-separated list such as
+`tabithaz/DevPulse,tabithaz/TelemetryGuard` to restrict signed webhook
+collection to an explicit repository allowlist. Events for other repositories
+receive HTTP 403 before any GitHub API call or database write. An invalid,
+non-empty allowlist fails closed with HTTP 503.
+
 After collecting at least two snapshots, call
 `GET /github/tabithaz/DevPulse/snapshots/delta` to see changes in stars,
 forks, open issues, archived state, and default branch. The endpoint reads
