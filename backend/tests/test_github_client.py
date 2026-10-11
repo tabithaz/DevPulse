@@ -123,6 +123,37 @@ def test_github_client_retries_transient_server_failures() -> None:
     assert delays == [0.1, 0.2]
 
 
+@pytest.mark.parametrize(
+    ("retry_after", "expected_delay"),
+    [("7", 7.0), ("999", 60.0), ("invalid", 0.1)],
+)
+def test_github_client_honors_bounded_retry_after_guidance(
+    retry_after: str,
+    expected_delay: float,
+) -> None:
+    statuses = iter((503, 200))
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        return httpx.Response(
+            status,
+            headers={"Retry-After": retry_after} if status == 503 else {},
+            json=repository_payload() if status == 200 else None,
+            request=request,
+        )
+
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        backoff_seconds=0.1,
+        sleep=delays.append,
+    ) as github:
+        snapshot = github.repository_snapshot("octocat", "hello-world")
+
+    assert snapshot.repository == "octocat/hello-world"
+    assert delays == [expected_delay]
+
+
 def test_github_client_bounds_network_retries() -> None:
     delays = []
     requests = 0

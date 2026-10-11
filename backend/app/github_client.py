@@ -1,5 +1,6 @@
 import math
 import os
+import re
 from threading import Lock
 import time
 from dataclasses import asdict, dataclass
@@ -7,6 +8,17 @@ from datetime import datetime, timezone
 from typing import Callable, Iterator
 
 import httpx
+
+
+MAX_RETRY_DELAY_SECONDS = 60.0
+
+
+def retry_delay_seconds(response: httpx.Response, fallback: float) -> float:
+    """Honor numeric Retry-After guidance without allowing unbounded sleeps."""
+    retry_after = response.headers.get("retry-after", "")
+    if re.fullmatch(r"\d+", retry_after):
+        fallback = max(fallback, float(retry_after))
+    return min(fallback, MAX_RETRY_DELAY_SECONDS)
 
 
 class GitHubClientError(RuntimeError):
@@ -196,6 +208,10 @@ class GitHubClient:
         """Retry bounded transient failures without replaying permanent errors."""
         self._circuit_breaker.before_request()
         for attempt in range(self._max_attempts):
+            retry_delay = min(
+                self._backoff_seconds * (2**attempt),
+                MAX_RETRY_DELAY_SECONDS,
+            )
             try:
                 response = self._client.get(path)
             except httpx.TransportError:
@@ -209,7 +225,8 @@ class GitHubClient:
                 if attempt + 1 == self._max_attempts:
                     self._circuit_breaker.record_failure()
                     return response
-            self._sleep(self._backoff_seconds * (2**attempt))
+                retry_delay = retry_delay_seconds(response, retry_delay)
+            self._sleep(retry_delay)
         raise AssertionError("retry loop must return or raise")
 
     def rate_limit(self) -> GitHubRateLimit:
