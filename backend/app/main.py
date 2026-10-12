@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.gzip import GZipMiddleware
 
+from app.bulkhead import InFlightLimiter
 from app.change_failure import analyze_change_failure
 from app.deployment_batch import analyze_deployment_batches
 from app.deployment_frequency import analyze_deployment_frequency
@@ -53,8 +54,10 @@ DASHBOARD_PATH = Path(__file__).parent / "static" / "dashboard.html"
 MAX_WEBHOOK_BYTES = 256 * 1024
 DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
 MANUAL_COLLECTION_PATH = re.compile(r"^/github/[^/]+/[^/]+/snapshots$")
+COLLECTION_PATHS = {"/github/snapshots/collect", "/github/webhooks"}
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 request_metrics = RequestMetrics()
+collection_limiter = InFlightLimiter()
 LOGGER = logging.getLogger("devpulse.requests")
 
 
@@ -68,6 +71,15 @@ def max_request_bytes() -> int:
     except ValueError:
         return DEFAULT_MAX_REQUEST_BYTES
     return maximum if maximum > 0 else DEFAULT_MAX_REQUEST_BYTES
+
+
+def max_concurrent_collections() -> int:
+    configured = os.getenv("DEVPULSE_MAX_CONCURRENT_COLLECTIONS", "0")
+    try:
+        limit = int(configured)
+    except ValueError:
+        return 0
+    return max(0, limit)
 
 
 @app.middleware("http")
@@ -245,6 +257,31 @@ async def protect_manual_collection(request: Request, call_next):
                 headers={"WWW-Authenticate": "ApiKey"},
             )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def limit_concurrent_collections(request: Request, call_next):
+    """Fail fast instead of exhausting workers during upstream slowdowns."""
+    is_collection = request.method == "POST" and (
+        request.url.path in COLLECTION_PATHS
+        or MANUAL_COLLECTION_PATH.fullmatch(request.url.path) is not None
+    )
+    limit = max_concurrent_collections()
+    if not is_collection or limit == 0:
+        return await call_next(request)
+    if not collection_limiter.try_acquire(limit):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "collection concurrency limit reached"},
+            headers={
+                "Retry-After": "1",
+                "X-Concurrency-Limit": str(limit),
+            },
+        )
+    try:
+        return await call_next(request)
+    finally:
+        collection_limiter.release()
 
 
 def spreadsheet_safe_text(value: str | None) -> str:
@@ -724,6 +761,21 @@ def prometheus_metrics(
             f'devpulse_snapshot_stale{{repository="{label}"}} '
             f'{int(item["status"] == "stale")}'
         )
+    bulkhead = collection_limiter.snapshot(max_concurrent_collections())
+    lines.extend((
+        "# HELP devpulse_collection_concurrency_limit "
+        "Configured collection capacity; zero means disabled.",
+        "# TYPE devpulse_collection_concurrency_limit gauge",
+        f"devpulse_collection_concurrency_limit {bulkhead['limit']}",
+        "# HELP devpulse_collection_requests_in_flight "
+        "Collection requests currently holding capacity.",
+        "# TYPE devpulse_collection_requests_in_flight gauge",
+        f"devpulse_collection_requests_in_flight {bulkhead['in_flight']}",
+        "# HELP devpulse_collection_requests_rejected_total "
+        "Collection requests rejected at capacity.",
+        "# TYPE devpulse_collection_requests_rejected_total counter",
+        f"devpulse_collection_requests_rejected_total {bulkhead['rejected_total']}",
+    ))
     lines.extend(render_request_metrics(request_metrics.snapshot()))
     return Response(
         content="\n".join(lines) + "\n",

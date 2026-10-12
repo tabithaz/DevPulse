@@ -27,6 +27,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Bounded `Retry-After` coordination for transient GitHub service failures
 - Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
 - Shared GitHub outage circuit breaker with automatic recovery and retry guidance
+- Configurable collection bulkhead with fail-fast overload signaling
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -135,6 +136,12 @@ errors fail immediately. Deployments can tune the bounded policy with
 Transient GitHub responses can extend an individual retry delay through either
 the delay-seconds or HTTP-date form of `Retry-After`, capped at 60 seconds so
 upstream guidance cannot stall a collection worker indefinitely.
+Set `DEVPULSE_MAX_CONCURRENT_COLLECTIONS` to a positive integer to cap the
+single-repository, batch, and webhook collection requests that may execute at
+once. Saturated requests receive HTTP 503 with `Retry-After` and
+`X-Concurrency-Limit` instead of occupying another worker. The limit is disabled
+by default, and `/metrics` reports configured capacity, in-flight work, and
+cumulative rejections for alerting.
 After five fully retried failures, the shared circuit breaker pauses upstream
 calls for 30 seconds and returns HTTP 503 with `Retry-After`. Configure those
 bounds with `DEVPULSE_GITHUB_CIRCUIT_FAILURES` and
