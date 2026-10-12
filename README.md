@@ -132,9 +132,9 @@ of sending a synchronized burst back to GitHub. Rate limits and permanent client
 errors fail immediately. Deployments can tune the bounded policy with
 `DEVPULSE_GITHUB_MAX_ATTEMPTS` from 1 to 5 and
 `DEVPULSE_GITHUB_BACKOFF_SECONDS` without rebuilding the service.
-Transient GitHub responses can extend an individual retry delay through a
-numeric `Retry-After` header, capped at 60 seconds so upstream guidance cannot
-stall a collection worker indefinitely.
+Transient GitHub responses can extend an individual retry delay through either
+the delay-seconds or HTTP-date form of `Retry-After`, capped at 60 seconds so
+upstream guidance cannot stall a collection worker indefinitely.
 After five fully retried failures, the shared circuit breaker pauses upstream
 calls for 30 seconds and returns HTTP 503 with `Retry-After`. Configure those
 bounds with `DEVPULSE_GITHUB_CIRCUIT_FAILURES` and

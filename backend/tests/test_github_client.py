@@ -14,6 +14,7 @@ from app.github_client import (
     GitHubServiceError,
     RepositorySnapshot,
     github_client_dependency,
+    retry_delay_seconds,
 )
 from app.main import app
 
@@ -154,6 +155,35 @@ def test_github_client_honors_bounded_retry_after_guidance(
 
     assert snapshot.repository == "octocat/hello-world"
     assert delays == [expected_delay]
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected_delay"),
+    [
+        ("Wed, 21 Oct 2026 07:28:10 GMT", 10.0),
+        ("Wed, 21 Oct 2026 07:30:00 GMT", 60.0),
+        ("Wed, 21 Oct 2026 07:27:00 GMT", 0.25),
+        ("not-a-date", 0.25),
+    ],
+)
+def test_retry_after_supports_http_dates(
+    retry_after: str,
+    expected_delay: float,
+) -> None:
+    request = httpx.Request("GET", "https://api.github.com/repos/test/repo")
+    response = httpx.Response(
+        503,
+        headers={"Retry-After": retry_after},
+        request=request,
+    )
+
+    delay = retry_delay_seconds(
+        response,
+        0.25,
+        now=datetime(2026, 10, 21, 7, 28, tzinfo=timezone.utc),
+    )
+
+    assert delay == expected_delay
 
 
 def test_github_client_bounds_network_retries() -> None:

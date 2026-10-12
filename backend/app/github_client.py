@@ -6,6 +6,7 @@ from threading import Lock
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable, Iterator
 
 import httpx
@@ -19,11 +20,25 @@ def full_jitter(maximum: float) -> float:
     return random.uniform(0, maximum)
 
 
-def retry_delay_seconds(response: httpx.Response, fallback: float) -> float:
-    """Honor numeric Retry-After guidance without allowing unbounded sleeps."""
+def retry_delay_seconds(
+    response: httpx.Response,
+    fallback: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Honor delay-seconds or HTTP-date Retry-After without unbounded sleeps."""
     retry_after = response.headers.get("retry-after", "")
     if re.fullmatch(r"\d+", retry_after):
         fallback = max(fallback, float(retry_after))
+    elif retry_after:
+        try:
+            retry_at = parsedate_to_datetime(retry_after)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            current = now or datetime.now(timezone.utc)
+            fallback = max(fallback, (retry_at - current).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            pass
     return min(fallback, MAX_RETRY_DELAY_SECONDS)
 
 
