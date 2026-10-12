@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import re
 from threading import Lock
 import time
@@ -11,6 +12,11 @@ import httpx
 
 
 MAX_RETRY_DELAY_SECONDS = 60.0
+
+
+def full_jitter(maximum: float) -> float:
+    """Spread retries across the current exponential-backoff window."""
+    return random.uniform(0, maximum)
 
 
 def retry_delay_seconds(response: httpx.Response, fallback: float) -> float:
@@ -139,6 +145,7 @@ class GitHubClient:
         max_attempts: int = 3,
         backoff_seconds: float = 0.25,
         sleep: Callable[[float], None] = time.sleep,
+        jitter: Callable[[float], float] = full_jitter,
         circuit_breaker: GitHubCircuitBreaker | None = None,
     ) -> None:
         if max_attempts < 1 or max_attempts > 5:
@@ -165,6 +172,7 @@ class GitHubClient:
         self._max_attempts = max_attempts
         self._backoff_seconds = backoff_seconds
         self._sleep = sleep
+        self._jitter = jitter
         self._circuit_breaker = circuit_breaker or GitHubCircuitBreaker()
 
     @classmethod
@@ -208,10 +216,11 @@ class GitHubClient:
         """Retry bounded transient failures without replaying permanent errors."""
         self._circuit_breaker.before_request()
         for attempt in range(self._max_attempts):
-            retry_delay = min(
+            backoff_ceiling = min(
                 self._backoff_seconds * (2**attempt),
                 MAX_RETRY_DELAY_SECONDS,
             )
+            retry_response: httpx.Response | None = None
             try:
                 response = self._client.get(path)
             except httpx.TransportError:
@@ -225,7 +234,13 @@ class GitHubClient:
                 if attempt + 1 == self._max_attempts:
                     self._circuit_breaker.record_failure()
                     return response
-                retry_delay = retry_delay_seconds(response, retry_delay)
+                retry_response = response
+            retry_delay = min(
+                max(0.0, self._jitter(backoff_ceiling)),
+                backoff_ceiling,
+            )
+            if retry_response is not None:
+                retry_delay = retry_delay_seconds(retry_response, retry_delay)
             self._sleep(retry_delay)
         raise AssertionError("retry loop must return or raise")
 

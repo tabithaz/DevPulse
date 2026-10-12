@@ -23,6 +23,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Negotiated gzip compression for large API, dashboard, and report responses
 - Configurable pre-parse request limits that protect write endpoints from oversized bodies
 - Bounded exponential retries for transient GitHub API and network failures
+- Full-jitter backoff that prevents synchronized retries across collection workers
 - Bounded `Retry-After` coordination for transient GitHub service failures
 - Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
 - Shared GitHub outage circuit breaker with automatic recovery and retry guidance
@@ -125,8 +126,10 @@ export GITHUB_TOKEN=github_pat_your_token
 
 The token is only sent to GitHub and is never included in API responses.
 Transient GitHub network failures and HTTP 500, 502, 503, or 504 responses are
-retried up to three times with exponential backoff. Rate limits and permanent
-client errors fail immediately. Deployments can tune the bounded policy with
+retried up to three times with capped exponential backoff and full jitter. The
+jitter spreads concurrent collection retries across each backoff window instead
+of sending a synchronized burst back to GitHub. Rate limits and permanent client
+errors fail immediately. Deployments can tune the bounded policy with
 `DEVPULSE_GITHUB_MAX_ATTEMPTS` from 1 to 5 and
 `DEVPULSE_GITHUB_BACKOFF_SECONDS` without rebuilding the service.
 Transient GitHub responses can extend an individual retry delay through a

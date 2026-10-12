@@ -115,6 +115,7 @@ def test_github_client_retries_transient_server_failures() -> None:
         transport=httpx.MockTransport(handler),
         backoff_seconds=0.1,
         sleep=delays.append,
+        jitter=lambda ceiling: ceiling,
     ) as github:
         snapshot = github.repository_snapshot("octocat", "hello-world")
 
@@ -147,6 +148,7 @@ def test_github_client_honors_bounded_retry_after_guidance(
         transport=httpx.MockTransport(handler),
         backoff_seconds=0.1,
         sleep=delays.append,
+        jitter=lambda ceiling: ceiling,
     ) as github:
         snapshot = github.repository_snapshot("octocat", "hello-world")
 
@@ -168,11 +170,42 @@ def test_github_client_bounds_network_retries() -> None:
         max_attempts=3,
         backoff_seconds=0.1,
         sleep=delays.append,
+        jitter=lambda ceiling: ceiling,
     ) as github:
         with pytest.raises(GitHubServiceError, match="unavailable"):
             github.repository_snapshot("octocat", "hello-world")
 
     assert requests == 3
+    assert delays == [0.1, 0.2]
+
+
+def test_github_client_jitters_exponential_retry_windows() -> None:
+    statuses = iter((503, 503, 200))
+    delays: list[float] = []
+    ceilings: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        return httpx.Response(
+            status,
+            json=repository_payload() if status == 200 else None,
+            request=request,
+        )
+
+    def midpoint_jitter(ceiling: float) -> float:
+        ceilings.append(ceiling)
+        return ceiling / 2
+
+    with GitHubClient(
+        transport=httpx.MockTransport(handler),
+        backoff_seconds=0.2,
+        sleep=delays.append,
+        jitter=midpoint_jitter,
+    ) as github:
+        snapshot = github.repository_snapshot("octocat", "hello-world")
+
+    assert snapshot.repository == "octocat/hello-world"
+    assert ceilings == [0.2, 0.4]
     assert delays == [0.1, 0.2]
 
 
