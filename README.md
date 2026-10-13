@@ -28,6 +28,7 @@ The project also includes a tested analytics library for delivery cadence, lead 
 - Standards-based rate-limit backoff through `Retry-After` and `X-RateLimit-Reset`
 - Shared GitHub outage circuit breaker with automatic recovery and retry guidance
 - Configurable collection bulkhead with fail-fast overload signaling
+- Graceful instance draining that preserves liveness and read-only analytics
 - ETag revalidation for efficient portfolio-dashboard polling
 - Configurable per-repository snapshot retention with transactional pruning
 - Stable cursor pagination for long repository snapshot histories
@@ -160,6 +161,12 @@ Confirm the application and its snapshot database are ready with:
 ```bash
 curl http://127.0.0.1:8000/ready
 ```
+
+Set `DEVPULSE_DRAIN_MARKER` to a writable marker-file path when deployments need
+graceful traffic draining. Creating that file makes `/ready` return HTTP 503 and
+rejects new API, batch, and webhook collections with `Retry-After: 5`, while
+`/health`, the dashboard, metrics, and stored analytics remain available.
+Remove the marker to restore readiness without restarting the process.
 
 Create a consistent online backup without stopping the API:
 

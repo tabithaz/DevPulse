@@ -82,6 +82,24 @@ def max_concurrent_collections() -> int:
     return max(0, limit)
 
 
+def drain_marker_path() -> Path | None:
+    """Return the optional filesystem marker used to drain this instance."""
+    configured = os.getenv("DEVPULSE_DRAIN_MARKER", "").strip()
+    return Path(configured) if configured else None
+
+
+def is_draining() -> bool:
+    marker = drain_marker_path()
+    return marker is not None and marker.exists()
+
+
+def is_collection_request(request: Request) -> bool:
+    return request.method == "POST" and (
+        request.url.path in COLLECTION_PATHS
+        or MANUAL_COLLECTION_PATH.fullmatch(request.url.path) is not None
+    )
+
+
 @app.middleware("http")
 async def limit_request_bodies(request: Request, call_next):
     """Reject oversized write requests before parsing or validation."""
@@ -262,12 +280,8 @@ async def protect_manual_collection(request: Request, call_next):
 @app.middleware("http")
 async def limit_concurrent_collections(request: Request, call_next):
     """Fail fast instead of exhausting workers during upstream slowdowns."""
-    is_collection = request.method == "POST" and (
-        request.url.path in COLLECTION_PATHS
-        or MANUAL_COLLECTION_PATH.fullmatch(request.url.path) is not None
-    )
     limit = max_concurrent_collections()
-    if not is_collection or limit == 0:
+    if not is_collection_request(request) or limit == 0:
         return await call_next(request)
     if not collection_limiter.try_acquire(limit):
         return JSONResponse(
@@ -282,6 +296,18 @@ async def limit_concurrent_collections(request: Request, call_next):
         return await call_next(request)
     finally:
         collection_limiter.release()
+
+
+@app.middleware("http")
+async def reject_collections_while_draining(request: Request, call_next):
+    """Stop new collection work while allowing health and read-only traffic."""
+    if is_draining() and is_collection_request(request):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "service is draining"},
+            headers={"Retry-After": "5"},
+        )
+    return await call_next(request)
 
 
 def spreadsheet_safe_text(value: str | None) -> str:
@@ -704,8 +730,14 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/ready")
-def readiness_check() -> dict[str, str]:
+def readiness_check():
     """Confirm the service can initialize and query its snapshot database."""
+    if is_draining():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "service is draining"},
+            headers={"Retry-After": "5"},
+        )
     try:
         store = SnapshotStore.from_environment()
         store.check_connection()
