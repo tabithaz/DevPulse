@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 from statistics import median
 
 
@@ -15,10 +16,15 @@ def analyze_issue_resolution(
     resolution_hours: list[float],
     sla_hours: float = 72.0,
 ) -> IssueResolutionReport:
-    if sla_hours <= 0:
-        raise ValueError("sla_hours must be greater than zero")
-    if any(hours < 0 for hours in resolution_hours):
-        raise ValueError("resolution hours cannot be negative")
+    if (isinstance(sla_hours, bool) or not isinstance(sla_hours, (int, float))
+            or not isfinite(sla_hours) or sla_hours <= 0):
+        raise ValueError("sla_hours must be a finite positive number")
+    if any(
+        isinstance(hours, bool) or not isinstance(hours, (int, float))
+        or not isfinite(hours) or hours < 0
+        for hours in resolution_hours
+    ):
+        raise ValueError("resolution hours must be finite non-negative numbers")
 
     if not resolution_hours:
         return IssueResolutionReport(0, 0.0, 0.0, 0.0, "no_data")
