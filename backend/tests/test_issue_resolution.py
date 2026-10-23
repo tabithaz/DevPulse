@@ -31,3 +31,20 @@ def test_rejects_invalid_values():
         analyze_issue_resolution([-1])
     with pytest.raises(ValueError):
         analyze_issue_resolution([1], sla_hours=0)
+
+@pytest.mark.parametrize("invalid_hours", [float("nan"), float("inf"), -float("inf"), True, "12"])
+def test_rejects_invalid_resolution_measurements(invalid_hours):
+    with pytest.raises(ValueError, match="resolution hours"):
+        analyze_issue_resolution([12, invalid_hours])
+
+
+@pytest.mark.parametrize("invalid_sla", [float("nan"), float("inf"), -float("inf"), True, "72"])
+def test_rejects_invalid_sla_thresholds(invalid_sla):
+    with pytest.raises(ValueError, match="sla_hours"):
+        analyze_issue_resolution([12], sla_hours=invalid_sla)
+
+
+def test_zero_resolution_hours_is_valid():
+    report = analyze_issue_resolution([0, 0, 24])
+    assert report.resolved_issues == 3
+    assert report.median_resolution_hours == 0.0
