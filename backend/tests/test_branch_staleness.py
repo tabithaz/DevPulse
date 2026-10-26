@@ -31,3 +31,28 @@ def test_invalid_configuration_is_rejected():
         analyze_branch_staleness([1], stale_after_days=0)
     with pytest.raises(ValueError):
         analyze_branch_staleness([-1])
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, "14", None, 10**400])
+def test_rejects_invalid_stale_age_threshold(invalid):
+    with pytest.raises(ValueError, match="stale_after_days"):
+        analyze_branch_staleness([1], stale_after_days=invalid)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, "50", None, 10**400])
+def test_rejects_invalid_critical_rate_threshold(invalid):
+    with pytest.raises(ValueError, match="critical_rate_percent"):
+        analyze_branch_staleness([1], critical_rate_percent=invalid)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, "7", None, 10**400])
+def test_rejects_invalid_branch_ages(invalid):
+    with pytest.raises(ValueError, match="branch ages"):
+        analyze_branch_staleness([1, invalid])
+
+
+def test_zero_age_and_exact_stale_threshold_remain_valid():
+    report = analyze_branch_staleness([0, 14], stale_after_days=14, critical_rate_percent=50)
+    assert report.stale_branches == 1
+    assert report.stale_rate_percent == 50.0
+    assert report.status == "critical"
