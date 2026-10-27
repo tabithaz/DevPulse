@@ -19,7 +19,14 @@ def forecast_activity(recent_windows: list[int]) -> ActivityForecast:
 
     weights = list(range(1, len(recent_windows) + 1))
     weighted_total = sum(events * weight for events, weight in zip(recent_windows, weights))
-    forecast_events = round(weighted_total / sum(weights))
+    # Round the weighted mean to the nearest integer without losing precision
+    # when event counts exceed the floating-point range.
+    weight_sum = sum(weights)
+    forecast_events, remainder = divmod(weighted_total, weight_sum)
+    if 2 * remainder > weight_sum or (
+        2 * remainder == weight_sum and forecast_events % 2
+    ):
+        forecast_events += 1
 
     if len(recent_windows) == 1:
         momentum_percent = None

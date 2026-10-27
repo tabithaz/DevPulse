@@ -47,3 +47,28 @@ def test_forecast_rejects_invalid_windows(windows):
 def test_forecast_rejects_non_integer_counts(windows):
     with pytest.raises(ValueError, match="event counts must be integers"):
         forecast_activity(windows)
+
+
+@pytest.mark.parametrize(
+    ("windows", "expected"),
+    [
+        ([2**53 + 1], 2**53 + 1),
+        ([2**53 + 1, 2**53 + 1], 2**53 + 1),
+        ([10**400], 10**400),
+    ],
+)
+def test_forecast_preserves_large_integer_counts(windows, expected):
+    assert forecast_activity(windows).forecast_events == expected
+
+
+@pytest.mark.parametrize(
+    ("windows", "expected"),
+    [
+        ([0, 0, 1], 0),  # 3/6 rounds to even zero
+        ([0, 0, 3], 2),  # 9/6 rounds to even two
+        ([0, 0, 5], 2),  # 15/6 rounds to even two
+        ([0, 0, 7], 4),  # 21/6 rounds to even four
+    ],
+)
+def test_forecast_preserves_ties_to_even_rounding(windows, expected):
+    assert forecast_activity(windows).forecast_events == expected
