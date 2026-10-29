@@ -331,6 +331,31 @@ def test_lead_time_endpoint_rejects_invalid_inputs() -> None:
 
 
 
+def test_lead_time_endpoint_keeps_large_median_finite() -> None:
+    response = client.post(
+        "/delivery/lead-time",
+        json={"lead_times_hours": [1e308, 1e308]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["median_hours"] == 1e308
+
+
+def test_lead_time_endpoint_rejects_nonfinite_values() -> None:
+    invalid_requests = [
+        '{"lead_times_hours":[1e999]}',
+        '{"lead_times_hours":[4],"warning_hours":1e999}',
+        '{"lead_times_hours":[4],"critical_hours":1e999}',
+    ]
+    for body in invalid_requests:
+        response = client.post(
+            "/delivery/lead-time",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+
+
 def test_deployment_health_endpoint_combines_deployment_metrics() -> None:
     response = client.post(
         "/deployments/health",

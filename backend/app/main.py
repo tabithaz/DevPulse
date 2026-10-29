@@ -616,9 +616,9 @@ class SnapshotCollectionRequest(BaseModel):
 
 
 class LeadTimeRequest(BaseModel):
-    lead_times_hours: list[Annotated[float, Field(ge=0)]]
-    warning_hours: float = Field(default=48.0, gt=0)
-    critical_hours: float = Field(default=120.0, gt=0)
+    lead_times_hours: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]]
+    warning_hours: float = Field(default=48.0, gt=0, allow_inf_nan=False)
+    critical_hours: float = Field(default=120.0, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def validate_threshold_order(self) -> "LeadTimeRequest":
