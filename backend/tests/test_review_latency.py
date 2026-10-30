@@ -32,3 +32,46 @@ def test_rejects_invalid_values():
         analyze_review_latency([-1])
     with pytest.raises(ValueError):
         analyze_review_latency([1], target_hours=0)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, False, "24", None, 10**400])
+def test_rejects_nonfinite_or_nonnumeric_review_times(invalid):
+    with pytest.raises(ValueError):
+        analyze_review_latency([1, invalid])
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, False, "24", None, 10**400])
+def test_rejects_invalid_target_hours(invalid):
+    with pytest.raises(ValueError):
+        analyze_review_latency([1], target_hours=invalid)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, False, "40", None, 10**400])
+def test_rejects_invalid_critical_overdue_percent(invalid):
+    with pytest.raises(ValueError):
+        analyze_review_latency([1], critical_overdue_percent=invalid)
+
+
+def test_large_finite_review_times_do_not_overflow_median():
+    report = analyze_review_latency([1e308, 1e308])
+    assert report.median_first_review_hours == 1e308
+    assert report.p90_first_review_hours == 1e308
+    assert report.status == "critical"
+
+
+def test_large_finite_mixed_review_times_have_finite_midpoint():
+    report = analyze_review_latency([0, 1e308])
+    assert report.median_first_review_hours == 5e307
+    assert report.overdue_reviews == 1
+
+
+def test_zero_latency_and_exact_target_are_not_overdue():
+    report = analyze_review_latency([0, 24], target_hours=24)
+    assert report.median_first_review_hours == 12.0
+    assert report.overdue_reviews == 0
+    assert report.status == "healthy"
+
+
+def test_invalid_threshold_rejected_even_for_empty_history():
+    with pytest.raises(ValueError):
+        analyze_review_latency([], target_hours=float("nan"))
