@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from statistics import median
+from sys import maxsize
 
 
 @dataclass(frozen=True)
@@ -12,16 +13,21 @@ class DeploymentBatchReport:
     status: str
 
 
+def _valid_count(value: object) -> bool:
+    return type(value) is int and 0 <= value <= maxsize
+
+
 def analyze_deployment_batches(
     changes_per_deployment: list[int],
     warning_size: int = 20,
     critical_size: int = 50,
 ) -> DeploymentBatchReport:
     """Summarize deployment batch size and identify risky large releases."""
-    if warning_size <= 0 or critical_size <= warning_size:
-        raise ValueError("thresholds must satisfy 0 < warning < critical")
-    if any(changes < 0 for changes in changes_per_deployment):
-        raise ValueError("change counts cannot be negative")
+    if (not _valid_count(warning_size) or not _valid_count(critical_size)
+            or warning_size == 0 or critical_size <= warning_size):
+        raise ValueError("thresholds must satisfy 0 < warning < critical with integer sizes")
+    if any(not _valid_count(changes) for changes in changes_per_deployment):
+        raise ValueError("change counts must be non-negative integers within platform limits")
     if not changes_per_deployment:
         return DeploymentBatchReport(0, 0, 0.0, 0, 0, "no_data")
 
