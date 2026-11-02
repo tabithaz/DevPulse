@@ -651,7 +651,7 @@ class LeadTimeRequest(BaseModel):
 
 
 class DeploymentHealthRequest(BaseModel):
-    deployment_days: list[Annotated[float, Field(ge=0)]]
+    deployment_days: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]]
     changes_per_deployment: list[Annotated[int, Field(ge=0)]]
     outcomes: list[bool]
 

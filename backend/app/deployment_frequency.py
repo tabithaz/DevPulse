@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 from statistics import median
 
 
@@ -11,9 +12,20 @@ class DeploymentFrequencyReport:
     status: str
 
 
+def _valid_deployment_day(day: object) -> bool:
+    if isinstance(day, bool) or not isinstance(day, (int, float)):
+        return False
+    try:
+        return isfinite(day) and day >= 0
+    except OverflowError:
+        return False
+
+
 def analyze_deployment_frequency(deployment_days: list[float]) -> DeploymentFrequencyReport:
-    if any(day < 0 for day in deployment_days):
-        raise ValueError("deployment days cannot be negative")
+    if not isinstance(deployment_days, list) or any(
+        not _valid_deployment_day(day) for day in deployment_days
+    ):
+        raise ValueError("deployment days must be finite non-negative numbers")
     if deployment_days != sorted(deployment_days):
         raise ValueError("deployment days must be sorted")
     if not deployment_days:

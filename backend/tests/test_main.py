@@ -432,3 +432,16 @@ def test_deployment_health_endpoint_rejects_inconsistent_history() -> None:
     assert "same number of entries" in mismatched.text
     assert unsorted.status_code == 422
     assert "deployment_days must be sorted" in unsorted.text
+
+
+def test_deployment_health_endpoint_rejects_infinite_days() -> None:
+    response = client.post(
+        "/deployments/health",
+        json={
+            "deployment_days": [0, "Infinity"],
+            "changes_per_deployment": [3, 5],
+            "outcomes": [True, True],
+        },
+    )
+
+    assert response.status_code == 422
