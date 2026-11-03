@@ -56,3 +56,15 @@ def test_zero_age_and_exact_stale_threshold_remain_valid():
     assert report.stale_branches == 1
     assert report.stale_rate_percent == 50.0
     assert report.status == "critical"
+
+
+def test_median_remains_finite_for_extreme_branch_ages():
+    report = analyze_branch_staleness([1e308, 1e308])
+    assert report.median_age_days == 1e308
+    assert report.stale_branches == 2
+    assert report.status == "critical"
+
+
+def test_median_of_large_unequal_branch_ages():
+    report = analyze_branch_staleness([1e307, 1e308])
+    assert report.median_age_days == 5.5e307
