@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from math import isfinite
-from statistics import median
 
 
 @dataclass(frozen=True)
@@ -36,6 +35,13 @@ def analyze_branch_staleness(
     if not branch_ages_days:
         return BranchStalenessReport(0, 0.0, 0, 0.0, "no_data")
 
+    ordered = sorted(branch_ages_days)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        median_age = ordered[midpoint]
+    else:
+        median_age = ordered[midpoint - 1] / 2 + ordered[midpoint] / 2
+
     stale = sum(age >= stale_after_days for age in branch_ages_days)
     stale_rate = stale / len(branch_ages_days) * 100.0
 
@@ -48,7 +54,7 @@ def analyze_branch_staleness(
 
     return BranchStalenessReport(
         active_branches=len(branch_ages_days),
-        median_age_days=round(float(median(branch_ages_days)), 2),
+        median_age_days=round(float(median_age), 2),
         stale_branches=stale,
         stale_rate_percent=round(stale_rate, 2),
         status=status,
