@@ -25,7 +25,9 @@ class InFlightLimiter:
 
     def release(self) -> None:
         with self._lock:
-            self._in_flight = max(0, self._in_flight - 1)
+            if self._in_flight == 0:
+                raise RuntimeError("cannot release capacity without an active acquisition")
+            self._in_flight -= 1
 
     def snapshot(self, limit: int) -> dict[str, int]:
         self._validate_limit(limit)
