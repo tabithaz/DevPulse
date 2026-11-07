@@ -10,18 +10,22 @@ class ChangeFailureReport:
     status: str
 
 
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and (isinstance(value, int) or isfinite(value))
+    )
+
+
 def analyze_change_failure(
     deployments: list[bool],
     warning_percent: float = 15.0,
     critical_percent: float = 30.0,
 ) -> ChangeFailureReport:
     if (
-        isinstance(warning_percent, bool)
-        or isinstance(critical_percent, bool)
-        or not isinstance(warning_percent, (int, float))
-        or not isinstance(critical_percent, (int, float))
-        or not isfinite(warning_percent)
-        or not isfinite(critical_percent)
+        not _is_finite_number(warning_percent)
+        or not _is_finite_number(critical_percent)
         or warning_percent < 0
         or critical_percent <= warning_percent
     ):
