@@ -44,3 +44,15 @@ def test_deployment_history_requires_boolean_list(deployments):
 def test_thresholds_require_finite_numeric_values(warning, critical):
     with pytest.raises(ValueError, match="finite numbers"):
         analyze_change_failure([True], warning_percent=warning, critical_percent=critical)
+
+
+def test_extremely_large_integer_thresholds():
+    huge = 10 ** 400
+    assert analyze_change_failure([False], warning_percent=huge, critical_percent=huge + 1).status == "healthy"
+    assert analyze_change_failure([False], warning_percent=0, critical_percent=huge).status == "watch"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_critical_thresholds_are_rejected(value):
+    with pytest.raises(ValueError, match="finite numbers"):
+        analyze_change_failure([False], critical_percent=value)
