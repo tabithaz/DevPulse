@@ -111,3 +111,17 @@ def test_backup_overwrite_is_atomic(tmp_path: Path) -> None:
     assert result.integrity_check == "ok"
     assert destination.read_bytes() != b"old backup"
     assert list(tmp_path.glob(".backup.db.*.tmp")) == []
+
+
+def test_backup_missing_source_does_not_create_database(tmp_path: Path) -> None:
+    source = tmp_path / "missing.db"
+    destination = tmp_path / "backup.db"
+    store = SnapshotStore.__new__(SnapshotStore)
+    store.database_path = str(source)
+    store.busy_timeout_ms = 5000
+
+    with pytest.raises(FileNotFoundError, match="source database does not exist"):
+        store.backup(destination)
+
+    assert not source.exists()
+    assert not destination.exists()
