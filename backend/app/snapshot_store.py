@@ -527,6 +527,8 @@ class SnapshotStore:
 
         destination_path = Path(destination).expanduser().resolve()
         source_path = Path(self.database_path).expanduser().resolve()
+        if not source_path.is_file():
+            raise FileNotFoundError(f"source database does not exist: {source_path}")
         if destination_path == source_path:
             raise ValueError("backup destination must differ from the source database")
         if not destination_path.parent.is_dir():
