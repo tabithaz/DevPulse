@@ -50,3 +50,7 @@ def test_same_day_deployments_remain_supported():
     assert report.deployment_count == 3
     assert report.status == "frequent"
     assert report.longest_gap_days == 1
+
+def test_rejects_unrepresentable_deployment_frequency():
+    with pytest.raises(ValueError, match="exceeds the supported numeric range"):
+        analyze_deployment_frequency([0.0, 5e-324])
