@@ -36,6 +36,8 @@ def analyze_deployment_frequency(deployment_days: list[float]) -> DeploymentFreq
     gaps = [deployment_days[i] - deployment_days[i - 1] for i in range(1, len(deployment_days))]
     span = deployment_days[-1] - deployment_days[0]
     per_week = ((len(deployment_days) - 1) / span * 7.0) if span > 0 else float(len(deployment_days))
+    if not isfinite(per_week):
+        raise ValueError("deployment frequency exceeds the supported numeric range")
     median_gap = float(median(gaps))
     longest_gap = max(gaps)
 
