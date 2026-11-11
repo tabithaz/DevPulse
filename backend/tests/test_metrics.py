@@ -105,3 +105,17 @@ def test_metrics_validates_freshness_sla(max_age_hours) -> None:
     response = client.get("/metrics", params={"max_age_hours": max_age_hours})
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("limit", [0, 3])
+def test_metrics_remain_available_with_disabled_or_enabled_bulkhead(
+    metrics_store, monkeypatch: pytest.MonkeyPatch, limit: int
+) -> None:
+    monkeypatch.setattr(main, "max_concurrent_collections", lambda: limit)
+
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert f"devpulse_collection_concurrency_limit {limit}" in response.text
+    assert "devpulse_collection_requests_in_flight" in response.text
+    assert "devpulse_collection_requests_rejected_total" in response.text
