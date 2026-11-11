@@ -816,12 +816,15 @@ def prometheus_metrics(
             f'devpulse_snapshot_stale{{repository="{label}"}} '
             f'{int(item["status"] == "stale")}'
         )
-    bulkhead = collection_limiter.snapshot(max_concurrent_collections())
+    # A zero setting disables the limiter, but metrics must still be readable.
+    # Preserve InFlightLimiter's strict positive-capacity contract.
+    configured_limit = max_concurrent_collections()
+    bulkhead = collection_limiter.snapshot(max(1, configured_limit))
     lines.extend((
         "# HELP devpulse_collection_concurrency_limit "
         "Configured collection capacity; zero means disabled.",
         "# TYPE devpulse_collection_concurrency_limit gauge",
-        f"devpulse_collection_concurrency_limit {bulkhead['limit']}",
+        f"devpulse_collection_concurrency_limit {configured_limit}",
         "# HELP devpulse_collection_requests_in_flight "
         "Collection requests currently holding capacity.",
         "# TYPE devpulse_collection_requests_in_flight gauge",
