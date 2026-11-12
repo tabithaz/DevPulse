@@ -544,36 +544,15 @@ class SnapshotStore:
         try:
             with self._connect() as source, sqlite3.connect(temporary_path) as target:
                 source.backup(target)
-                integrity = target.execute("PRAGMA integrity_check").fetchone()[0]
-                snapshot_count = target.execute(
-                    "SELECT COUNT(*) FROM repository_snapshots"
-                ).fetchone()[0]
-                repository_count = target.execute(
-                    "SELECT COUNT(DISTINCT repository) FROM repository_snapshots"
-                ).fetchone()[0]
-                run_count = target.execute(
-                    "SELECT COUNT(*) FROM collection_runs"
-                ).fetchone()[0]
-            if integrity != "ok":
-                raise sqlite3.DatabaseError(
-                    f"backup integrity check failed: {integrity}"
-                )
-
-            with temporary_path.open("rb") as backup_file:
-                checksum = hashlib.file_digest(backup_file, "sha256").hexdigest()
-            size_bytes = temporary_path.stat().st_size
+            # Validate the complete schema before publishing the backup.
+            manifest = _database_manifest(temporary_path)
             os.replace(temporary_path, destination_path)
         finally:
             temporary_path.unlink(missing_ok=True)
 
         return BackupResult(
             destination=str(destination_path),
-            size_bytes=size_bytes,
-            sha256=checksum,
-            repository_snapshots=snapshot_count,
-            repositories=repository_count,
-            collection_runs=run_count,
-            integrity_check=integrity,
+            **manifest,
         )
 
     def history(self, repository: str, limit: int = 30) -> list[RepositorySnapshot]:
