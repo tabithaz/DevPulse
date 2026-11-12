@@ -125,3 +125,29 @@ def test_backup_missing_source_does_not_create_database(tmp_path: Path) -> None:
 
     assert not source.exists()
     assert not destination.exists()
+
+
+def test_backup_rejects_missing_schema_without_overwriting_destination(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "incomplete.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "CREATE TABLE repository_snapshots (repository TEXT, collected_at TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE collection_runs (id INTEGER, trigger TEXT)"
+        )
+        # Missing idempotency_requests must prevent publication.
+
+    destination = tmp_path / "backup.db"
+    destination.write_bytes(b"existing backup")
+    store = SnapshotStore.__new__(SnapshotStore)
+    store.database_path = str(source)
+    store.busy_timeout_ms = 5000
+
+    with pytest.raises(sqlite3.DatabaseError, match="backup schema is missing"):
+        store.backup(destination, overwrite=True)
+
+    assert destination.read_bytes() == b"existing backup"
+    assert list(tmp_path.glob(".backup.db.*.tmp")) == []
