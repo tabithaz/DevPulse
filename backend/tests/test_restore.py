@@ -123,3 +123,28 @@ def test_restore_cli_outputs_machine_readable_manifest(
     assert manifest["destination"] == str(destination.resolve())
     assert manifest["integrity_check"] == "ok"
     assert manifest["repository_snapshots"] == 2
+
+
+def test_restore_invalid_backup_preserves_existing_database_even_with_overwrite(
+    tmp_path: Path,
+) -> None:
+    corrupt = tmp_path / "corrupt.db"
+    corrupt.write_bytes(b"not sqlite")
+    destination = tmp_path / "live.db"
+    destination.write_bytes(b"existing database contents")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        restore_database(corrupt, destination, overwrite=True)
+
+    assert destination.read_bytes() == b"existing database contents"
+    assert list(tmp_path.glob(".live.db.*.restore")) == []
+
+
+def test_restore_refuses_to_overwrite_its_own_backup(tmp_path: Path) -> None:
+    backup = backup_fixture(tmp_path)
+    original_checksum = hashlib.sha256(backup.read_bytes()).hexdigest()
+
+    with pytest.raises(ValueError, match="must differ"):
+        restore_database(backup, backup, overwrite=True)
+
+    assert hashlib.sha256(backup.read_bytes()).hexdigest() == original_checksum
