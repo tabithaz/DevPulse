@@ -157,6 +157,13 @@ def restore_database(
         restored_manifest = _database_manifest(temporary_path)
         if restored_manifest != source_manifest:
             raise sqlite3.DatabaseError("restored database does not match backup manifest")
+        # Recheck immediately before replacement: a database user may have
+        # created a journal after the initial check while the copy was made.
+        if any(sidecar.exists() for sidecar in sidecars):
+            raise sqlite3.OperationalError(
+                "restore destination has SQLite journal sidecars; stop database users "
+                "and checkpoint or recover the existing database before restoring"
+            )
         os.replace(temporary_path, destination_path)
     finally:
         temporary_path.unlink(missing_ok=True)
