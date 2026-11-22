@@ -139,6 +139,15 @@ def restore_database(
     if destination_path.exists() and not overwrite:
         raise FileExistsError(f"restore destination already exists: {destination_path}")
 
+    # Refuse to replace a main database while SQLite journal sidecars exist.
+    # These may hold uncheckpointed writes or belong to active connections.
+    sidecars = [Path(f"{destination_path}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
+    if any(sidecar.exists() for sidecar in sidecars):
+        raise sqlite3.OperationalError(
+            "restore destination has SQLite journal sidecars; stop database users "
+            "and checkpoint or recover the existing database before restoring"
+        )
+
     source_manifest = _database_manifest(backup_path)
     temporary_path = destination_path.with_name(
         f".{destination_path.name}.{uuid4().hex}.restore"
