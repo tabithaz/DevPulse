@@ -166,3 +166,30 @@ def test_restore_rejects_existing_sqlite_sidecars_without_modifying_files(
     assert destination.read_bytes() == b"original database"
     assert sidecar.read_bytes() == b"uncheckpointed data"
     assert list(tmp_path.glob(".live.db.*.restore")) == []
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+def test_restore_rechecks_sidecars_created_during_copy(
+    tmp_path: Path, suffix: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backup = backup_fixture(tmp_path)
+    destination = tmp_path / "live.db"
+    destination.write_bytes(b"original database")
+    sidecar = Path(f"{destination}{suffix}")
+
+    import app.snapshot_store as snapshot_store
+
+    original_copyfile = snapshot_store.shutil.copyfile
+
+    def copy_with_new_sidecar(source: Path, target: Path) -> None:
+        original_copyfile(source, target)
+        sidecar.write_bytes(b"pending journal")
+
+    monkeypatch.setattr(snapshot_store.shutil, "copyfile", copy_with_new_sidecar)
+
+    with pytest.raises(sqlite3.OperationalError, match="journal sidecars"):
+        restore_database(backup, destination, overwrite=True)
+
+    assert destination.read_bytes() == b"original database"
+    assert sidecar.read_bytes() == b"pending journal"
+    assert list(tmp_path.glob(".live.db.*.restore")) == []
