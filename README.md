@@ -195,6 +195,42 @@ validates every required table and column, and verifies the copied checksum and
 row-count manifest before atomically replacing the destination. Without
 `--overwrite`, an existing database is never changed.
 
+### Offline restore safety checklist
+
+Restoration is an **offline recovery operation**, not a live database migration.
+Before restoring, stop the API and all other processes using the destination
+SQLite database, including workers, maintenance commands, and interactive
+SQLite clients. Confirm those processes have exited; the restore command does
+not lock out new connections or guarantee that a database is idle.
+
+1. Preserve the existing database and any `-wal`, `-shm`, or `-journal`
+   sidecars together for investigation before changing the destination. Do not
+   delete sidecars to bypass the safety check: they can contain uncheckpointed
+   transactions. If the old database is still usable, perform a controlled
+   checkpoint with the database's owners stopped and confirm its integrity.
+2. Keep a separately verified backup in a different directory from the
+   destination. Ensure the destination directory exists, has adequate free
+   space, and is writable by the restoring process.
+3. With all database users stopped and no journal sidecars present, run the
+   restore command shown above. If it refuses because a sidecar exists, stop
+   and investigate the old database; do not force the replacement.
+4. Review the JSON manifest returned by the restore command, including
+   `integrity_check`, `sha256`, `repository_snapshots`, `repositories`, and
+   `collection_runs`. Compare counts and checksum with the verified backup
+   manifest. The command checks the copied file before replacement, but this
+   is not a substitute for a post-restore application check.
+5. Restart the API, check `/ready`, and confirm expected snapshot history and
+   collection-run data through read-only endpoints before resuming collection.
+   If verification fails, stop database users again before another recovery
+   attempt; retain the original files and backup for diagnosis.
+
+The restore code checks for journal sidecars before copying and again before
+replacement, but these checks cannot prevent a concurrent process from opening
+the database between checks. Do not restore while the application is running.
+Atomic replacement also does not by itself establish crash durability across
+power loss; test the recovery procedure on the target filesystem and deployment
+configuration before relying on it for disaster recovery.
+
 Checkpoint accumulated WAL data, run SQLite's optimizer, and verify database
 integrity with a machine-readable maintenance result:
 
