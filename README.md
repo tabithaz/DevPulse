@@ -231,6 +231,8 @@ Atomic replacement also does not by itself establish crash durability across
 power loss; test the recovery procedure on the target filesystem and deployment
 configuration before relying on it for disaster recovery.
 
+### Database maintenance
+
 Checkpoint accumulated WAL data, run SQLite's optimizer, and verify database
 integrity with a machine-readable maintenance result:
 
